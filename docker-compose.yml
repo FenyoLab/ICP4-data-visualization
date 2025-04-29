@@ -1,0 +1,103 @@
+version: '2.3'
+
+services:
+    ipv6nat:
+        container_name: ipv6nat
+        restart: always
+        image: robbertkl/ipv6nat
+        privileged: true
+        network_mode: host
+        volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+        - /lib/modules:/lib/modules:ro
+    
+    certbot:
+        container_name: certbot
+        image: certbot/certbot:latest
+        volumes:
+        - ./certbot/www/:/var/www/certbot/:rw
+        - ./certbot/conf/:/etc/letsencrypt/:rw
+        command: certonly --webroot --webroot-path=/var/www/certbot --email wenke.liu@nyulangone.org --agree-tos --no-eff-email -d secrepedia.org
+
+    maprrcon:
+        container_name: maprrcon
+        build: ./maprrcon
+        expose:
+            - "8000"
+        command: gunicorn -w 4 -b :8000 wsgi:app
+        networks:
+            - default
+
+    copurification:
+        container_name: copurification
+        build: 
+            context: ./copurification
+        volumes:
+            - /mnt/volume_nyc3_01/copurification-master:/var/www:Z
+            - /mnt/volume_nyc3_01/copurification-master/log/apache:/var/log/apache2/:Z
+        expose:
+            - "8001"
+        depends_on:
+            - db
+        sysctls:
+            - net.ipv6.conf.eth0.proxy_ndp=1
+            - net.ipv6.conf.all.forwarding=1
+        networks:
+            - default
+
+    db:
+        container_name: db
+        #build: ./mysql
+        image: mysql:5.7
+        environment:
+            - MYSQL_DATABASE=copur
+            # Password for root access
+            - MYSQL_ROOT_PASSWORD=Pr0T30ME
+            # Allow login from any ip
+            # To the best of my knowledge this should only be accessible from containers
+            - MYSQL_ROOT_HOST=%
+        command:
+            --max-connections=10
+            --lower_case_table_names=1
+        volumes:
+            - /mnt/volume_nyc3_01/mysql:/var/lib/mysql
+        networks:
+            - default
+    
+    secrepedia_shiny:
+        container_name: secrepedia_shiny
+        build: ./secrepedia_shiny
+        expose:
+            - "3838"
+        volumes:
+            - /srv/containers/secrepedia_shiny/app:/srv/shiny-server/
+        networks:
+            - default
+
+    nginx:
+        container_name: nginx_rp
+        build: ./nginx
+        volumes:
+            - /mnt/volume_nyc3_01/copurification-master/log/web/:/var/log/nginx/web/:Z
+            - /srv/containers/nginx/nginx.conf:/etc/nginx/nginx.conf
+            - /srv/containers/certbot/www/:/var/www/certbot:rw
+            - /srv/containers/certbot/conf/:/etc/nginx/ssl/:ro
+        ports:
+            - "80:80"
+            - "443:443"
+        depends_on:
+            - secrepedia_shiny
+            - maprrcon
+            - copurification
+        networks:
+            - default
+
+
+networks:
+  default:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+        - subnet: fd00:dead:beef::/48
