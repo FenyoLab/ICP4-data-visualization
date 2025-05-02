@@ -2,56 +2,163 @@ library(ggplot2)
 library(plotly)
 library(heatmaply)
 
-colname2cond = function(col_str){
-  df <- strsplit(col_str, split='_')%>% data.frame() %>% t()
-  colnames(df) = c('Genotype', 'Temperature')
-  rownames(df) = 1:dim(df)[1]
-  return(df)
-}
-
 # query functions
 #url_base = "https://api.secrepedia.org/secrepediadb/"
 url_base = "https://dev-api.secrepedia.org/secrepediadb/"
 
-# Helper function to show exepriment details
-show_exp_details <- function(exp_id, user_info) {
-      # TODO: send request to backend to get experiment details
-      detail_url <- paste0(url_base, "experiment/", exp_id, "/")
-      print(detail_url)
-      if (is.null(user_info$access_token)){
-        detail_response <- httr::GET(detail_url, config = list())
-      }else{
-        detail_response <- httr::GET(detail_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      }
+# Authentication function
+with_auth <- function(operation_fn) {
+  # Any request function always uses user_info
+  function(user_info, ...){
+   # make request with operation_fn and the access token
+   make_request <- function(token){
+    tryCatch({
+      # the operation_fn should return a list with status, out, msg, handling known errors inside the operation_fn
+      request_results <- operation_fn(token, ...)
+      request_results
+    },
+    error = function(e){
+      list(
+        status = "error",  # Changed from status_code to status
+        out = NULL,
+        msg = sprintf("Unexpected error:%s",e$message)
+      )
+    })
+   }
 
-      if (detail_response$status_code == 200){
-        details <- httr::content(detail_response, "parsed", "application/json")
-        out <- details$description
-        msg = NULL
-      } 
-      else if (detail_response$status_code == 404){
-        msg <- "No Experiment matches the given query."
-        out <- NULL
-      }
-      else if (detail_response$status_code == 401){
-        print("Authentication failed. Refreshing token...")
-        refresh_url <- paste0(url_base, "token/refresh/")
-        refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-        if (refresh_response$status_code == 200){
+   # first try to make request with the current access token
+   if (!is.null(user_info$access_token)){
+    results <- make_request(user_info$access_token)
+    
+    # if unauthorized, try to refresh the token
+    if (!is.null(results$status) && results$status == 401) {  # Added null check
+      refresh_url <- paste0(url_base, "token/refresh/")
+      refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
+      if (refresh_response$status_code == 200) {    # refresh success
           user_info$access_token <- httr::content(refresh_response)$access
-          detail_response <- httr::GET(detail_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-          details <- httr::content(detail_response, "parsed", "application/json")
-          out <- details$description
-          msg = NULL
-        }
-        else{
-          msg <- "Authentication failed. Please login again."
-          out <- NULL
-        }
+          # try again with the new token
+          results <- make_request(user_info$access_token)
       }
-      return(list(out = out, msg = msg))  
-    } 
+      else{
+        # fail to refresh, urge user to login again
+        results <- list(
+          status = "error",
+          out = NULL,
+          msg = "Authentication failed, Please login again."
+        )
+      }
+    }
+   } 
+   else {
+    # no access token, send request without header
+    results <- make_request(NULL)
+   }
+   return(results)
+  }
+}
 
+show_exp_details <- with_auth(function(token, exp_id) {
+  detail_url <- paste0(url_base, "experiment/", exp_id, "/")
+  if (is.null(token)){
+    detail_response <- httr::GET(detail_url, config = list())
+  }
+  else{
+    detail_response <- httr::GET(detail_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+  }
+  if (detail_response$status_code == 200) {
+    details <- httr::content(detail_response, "parsed", "application/json")
+    status <- 200
+    out <- details$description
+    msg <- NULL
+  }
+  else {
+    status <- detail_response$status_code
+    out <- NULL
+    msg <- "Error fetching experiment details."
+  }
+  return(list(status = status, out = out, msg = msg))
+})
+
+# Helper function to parse and get the molecule presence matrix
+parse_molecule_presence <- function(molecule_presence_response){
+  molecule_presence_data <- httr::content(molecule_presence_response, "parsed", "application/json")
+  print(molecule_presence_data)
+  molecule_ids  <- names(molecule_presence_data[[1]][[1]])
+  exp_ids <- names(molecule_presence_data[[1]])
+  print(exp_ids)
+
+  if (length(molecule_ids) == 0){    # handle the case where no valid molecule ids are matched with the input
+    res = NULL
+  }
+  else{
+    print(exp_ids)
+    print(molecule_ids)
+    # Create list of dataframes with unique column names for presence
+    res <- lapply(seq_along(molecule_presence_data[[1]]), function(i) {
+      entry <- molecule_presence_data[[1]][[i]]
+      df <- data.frame(id = names(entry),
+                      presence = unlist(entry))
+      # Use the exp_id as the column name
+      colnames(df)[2] <- names(molecule_presence_data[[1]])[i]
+      return(df)
+    })
+
+    # Merge all dataframes by 'id' column
+    res <- Reduce(function(x, y) merge(x, y, by = "id", all = TRUE), res)
+    
+    rownames(res) <- res$id
+    res <- res[sort(molecule_ids), exp_ids]
+    res <- t(res)
+  }
+  print(res)
+  return(res)
+}
+
+# Helper function to query if a list of molecules are present in the list of experiments
+search_molecules <- with_auth(function(token, id_type, molecule_ids, exp_ids){
+  molecule_search_url <- paste0(url_base, "search-molecules/")
+  payload <- list(id_type = id_type,
+                  identifiers = as.list(molecule_ids),
+                  experiment_ids = exp_ids)
+  
+  if (is.null(token)){
+    molecule_search_response <- httr::POST(
+      molecule_search_url, 
+      body = payload,
+      encode = "json",
+      content_type("application/json")
+    )
+  } 
+  else {
+    molecule_search_response <- httr::POST(
+      molecule_search_url, 
+      body = payload,
+      encode = "json",
+      content_type("application/json"),
+      httr::add_headers(Authorization = sprintf("Bearer %s", token))
+    )
+  }
+  
+  #print(molecule_search_response$status_code)
+  if (molecule_search_response$status_code == 200){
+    molecule_presence_data <- parse_molecule_presence(molecule_search_response)
+    status <- 200
+    out <- molecule_presence_data
+    msg <- NULL
+  }
+  else if (molecule_search_response$status_code == 400){
+    status <- 400
+    error_content <- httr::content(molecule_search_response, "parsed")
+    out <- NULL
+    msg <- error_content$detail
+  }
+  else{
+    status <- molecule_search_response$status_code
+    out <- NULL
+    msg <- "Error searching molecules."
+  }
+  return(list(status = status, out = out, msg = msg))
+})
 
 # Helper function to parse the comparison response to get the comparison label
 comp_label = function(comp){
@@ -61,48 +168,48 @@ comp_label = function(comp){
 }
 
 # Helper function to get all comparisons in an experiment
-    get_all_comparisons <- function(exp_id, user_info) {
-      comp_url <- paste0(url_base, "comparison-data-sets/", exp_id, "/")
-      print(comp_url)
-      
-      if (is.null(user_info$access_token)){
-        comp_response <- httr::GET(comp_url, config = list())
-      }else{
-        comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      }
-      print(comp_response$status_code)
-      if (comp_response$status_code == 200){
-        comps <- httr::content(comp_response, "parsed", "application/json")
-        labels <- sapply(comps, comp_label)
-        ids <- sapply(comps, function(comp){comp$id})
-        out = ids
-        names(out) = labels 
-        msg = NULL
-      } 
-      else if (comp_response$status_code == 404){
-        out = NULL
-        msg <- "No Experiment matches the given query."
-      }
-      else if (comp_response$status_code == 401){
-        refresh_url <- paste0(url_base, "token/refresh/")
-        refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-        if (refresh_response$status_code == 200){
-          user_info$access_token <- httr::content(refresh_response)$access
-          comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-          comps <- httr::content(comp_response, "parsed", "application/json")
-          labels <- sapply(comps, comp_label)
-          ids <- sapply(comps, function(comp){comp$id})
-          out = ids
-          names(out) = labels 
-          msg = NULL
-        }
-        else{
-          msg <- "Authentication failed. Please login again."
-          out <- NULL
-        }
-      }
-      return(list(out = out, msg = msg))
-    } 
+get_all_comparisons <- function(exp_id, user_info) {
+  comp_url <- paste0(url_base, "comparison-data-sets/", exp_id, "/")
+  print(comp_url)
+  
+  if (is.null(user_info$access_token)){
+    comp_response <- httr::GET(comp_url, config = list())
+  }else{
+    comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
+  }
+  print(comp_response$status_code)
+  if (comp_response$status_code == 200){
+    comps <- httr::content(comp_response, "parsed", "application/json")
+    labels <- sapply(comps, comp_label)
+    ids <- sapply(comps, function(comp){comp$id})
+    out = ids
+    names(out) = labels 
+    msg = NULL
+  } 
+  else if (comp_response$status_code == 404){
+    out = NULL
+    msg <- "No Experiment matches the given query."
+  }
+  else if (comp_response$status_code == 401){
+    refresh_url <- paste0(url_base, "token/refresh/")
+    refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
+    if (refresh_response$status_code == 200){
+      user_info$access_token <- httr::content(refresh_response)$access
+      comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
+      comps <- httr::content(comp_response, "parsed", "application/json")
+      labels <- sapply(comps, comp_label)
+      ids <- sapply(comps, function(comp){comp$id})
+      out = ids
+      names(out) = labels 
+      msg = NULL
+    }
+    else{
+      msg <- "Authentication failed. Please login again."
+      out <- NULL
+    }
+  }
+  return(list(out = out, msg = msg))
+} 
 
 # Helper function to parse the comparison data response to get the comparison dataframe
 parse_comparison_data <- function(comp_data_response, molecule_type){
@@ -114,15 +221,20 @@ parse_comparison_data <- function(comp_data_response, molecule_type){
     pValue = sapply(comp_data, function(entry){if(is.null(entry$pValue)) NA else entry$pValue}),
     qValue = sapply(comp_data, function(entry){if(is.null(entry$qValue)) NA else entry$qValue})
   )
-  res$display_name = sapply(comp_data, function(entry){if(is.null(entry$molecule$display_name)) NA else entry$molecule$display_name})
-  res$gene_biotype = sapply(comp_data, function(entry){if(is.null(entry$molecule$gene_biotype)) NA else entry$molecule$gene_biotype})
-  res$gene_description = sapply(comp_data, function(entry){if(is.null(entry$molecule$gene_description)) NA else entry$molecule$gene_description})
+  res$display_name = sapply(comp_data, function(entry){
+    if(is.null(entry$molecule$display_name)) NA else entry$molecule$display_name})
+  res$gene_biotype = sapply(comp_data, function(entry){
+    if(is.null(entry$molecule$gene_biotype)) NA else entry$molecule$gene_biotype})
+  res$gene_description = sapply(comp_data, function(entry){
+    if(is.null(entry$molecule$gene_description)) NA else entry$molecule$gene_description})
   if (molecule_type == 'RNA'){
     # use ensembl_gene_id as display_id for RNA
-    res$display_id = sapply(comp_data, function(entry){if(is.null(entry$molecule$ensembl_gene_id)) NA else entry$molecule$ensembl_gene_id})
+    res$display_id = sapply(comp_data, function(entry){
+      if(is.null(entry$molecule$ensembl_gene_id)) NA else entry$molecule$ensembl_gene_id})
   }
   else if (molecule_type == 'Protein'){
-    res$display_id = sapply(comp_data, function(entry){if(is.null(entry$molecule$uniprot_id)) NA else entry$molecule$uniprot_id})
+    res$display_id = sapply(comp_data, function(entry){
+      if(is.null(entry$molecule$uniprot_id)) NA else entry$molecule$uniprot_id})
   }
   res = res[,c('id', 'display_id', 'display_name', 'gene_biotype', 'gene_description', 'log2FC', 'pValue', 'qValue')]
 
@@ -237,10 +349,14 @@ parse_exp_molecule <- function(exp_molecule_response, molecule_type){
       
     }
     else if (molecule_type == 'Protein'){
-      res$gene_name = sapply(exp_molecule_data, function(entry){if (is.null(entry$linked_gene$name)) NA else entry$linked_gene$name})
-      res$ensemble_peptide_id = sapply(exp_molecule_data, function(entry){if (is.null(entry$ensembl_id)) NA else entry$ensembl_id})
-      res$uniprot_id = sapply(exp_molecule_data, function(entry){if (is.null(entry$uniprot_id)) NA else entry$uniprot_id})
-      res$ensembl_gene_id = sapply(exp_molecule_data, function(entry){if (is.null(entry$linked_gene$ensembl_id)) NA else entry$linked_gene$ensembl_id})
+      res$gene_name = sapply(exp_molecule_data, function(entry){
+        if (is.null(entry$linked_gene$name)) NA else entry$linked_gene$name})
+      res$ensemble_peptide_id = sapply(exp_molecule_data, function(entry){
+        if (is.null(entry$ensembl_id)) NA else entry$ensembl_id})
+      res$uniprot_id = sapply(exp_molecule_data, function(entry){
+        if (is.null(entry$uniprot_id)) NA else entry$uniprot_id})
+      res$ensembl_gene_id = sapply(exp_molecule_data, function(entry){
+        if (is.null(entry$linked_gene$ensembl_id)) NA else entry$linked_gene$ensembl_id})
       res$display_id = res$uniprot_id    # this is for showing unique ids in the input field of the intensity heatmap
     }
     return(res)
@@ -285,15 +401,19 @@ parse_sample_molecule_values <- function(sample_data_response, molecule_type){
     if (!is.null(sample_value_data[[1]]$logcpm)){
       print('logcpm')
       res = data.frame(id = sapply(sample_value_data, function(entry){entry$molecule$id}),
-                       dataset_id = sapply(sample_value_data, function(entry){if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
-                       logcpm = sapply(sample_value_data, function(entry){if(is.null(entry$logcpm)) NA else entry$logcpm}))
+                       dataset_id = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
+                       logcpm = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$logcpm)) NA else entry$logcpm}))
       data_type = 'logcpm'
     }
     else{
       print('readcounts')
       res = data.frame(id = sapply(sample_value_data, function(entry){entry$molecule$id}),
-                       dataset_id = sapply(sample_value_data, function(entry){if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
-                       read_counts = sapply(sample_value_data, function(entry){if(is.null(entry$read_counts)) NA else entry$read_counts}))
+                       dataset_id = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
+                       read_counts = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$read_counts)) NA else entry$read_counts}))
       data_type = 'read_counts'
     }
   }
@@ -301,15 +421,19 @@ parse_sample_molecule_values <- function(sample_data_response, molecule_type){
     if (!is.null(sample_value_data[[1]]$raw_intensity)){
       print('raw intensity')
       res = data.frame(id = sapply(sample_value_data, function(entry){entry$molecule$id}),
-                       dataset_id = sapply(sample_value_data, function(entry){if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
-                       raw_intensity = sapply(sample_value_data, function(entry){if(is.null(entry$raw_intensity)) NA else entry$raw_intensity}))
+                       dataset_id = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
+                       raw_intensity = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$raw_intensity)) NA else entry$raw_intensity}))
       data_type = 'raw_intensity'
     }
     else{
       print('log intensity')
       res = data.frame(id = sapply(sample_value_data, function(entry){entry$molecule$id}),
-                       dataset_id = sapply(sample_value_data, function(entry){if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
-                       log_intensity = sapply(sample_value_data, function(entry){if(is.null(entry$log_intensity)) NA else entry$log_intensity}))
+                       dataset_id = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$data_set_id)) NA else entry$data_set_id}),
+                       log_intensity = sapply(sample_value_data, function(entry){
+                        if(is.null(entry$log_intensity)) NA else entry$log_intensity}))
       data_type = 'log_intensity'
     }
   }
@@ -394,7 +518,7 @@ get_exp_molecule_values <- function(exp_id, molecule_type, molecule_ids, user_in
   }
 }
 
-# Helper function to get data for a given comparison
+# Helper function to get data for secretion prediction
 get_prediction_data <- function(id_type, ids){
   # send request to backend to get prediction data
   payload <- list(
@@ -548,4 +672,3 @@ parse_prediction_data <- function(query_data){
     return(NULL)
   })
 }
-

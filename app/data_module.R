@@ -28,7 +28,7 @@ data_server <- function(id, main_session, user_info) {
     output$experiment_links <- renderUI({
       # Create ordered experiment list once to ensure consistency
       print("experiments")
-      print(user_info$experiments)
+      #print(user_info$experiments)
       ordered_experiments <- user_info$experiments[order(sapply(user_info$experiments, function(exp) exp$id))]
       
       div(
@@ -43,8 +43,8 @@ data_server <- function(id, main_session, user_info) {
               tags$li(
                 style = "height: 20px; display: flex; align-items: center; 
                          padding-right: 20px; margin: 2px 0;",
-                actionLink(ns(paste0("exp_link_", exp$id)), exp$title)
-              )
+                  actionLink(ns(paste0("exp_link_", exp$id)), exp$title)
+                )
             })
           )
         ),
@@ -59,8 +59,18 @@ data_server <- function(id, main_session, user_info) {
         div(
           style = "min-width: 200px; padding-left: 20px; border-left: 1px solid #ddd; 
                    margin-left: auto;",
-          textInput(ns("gene_search"), "Quick gene search", 
-                    placeholder = "Enter gene IDs (comma-separated)"),
+          h5("Quick gene search"),
+          selectInput(ns("id_type"), "SelectID Type",
+                     choices = c(
+                       "Gene Name" = "gene_name",
+                       "Ensembl Gene ID" = "ensembl_gene_id",
+                       "Ensembl Peptide ID" = "ensembl_peptide_id",
+                       "Uniprot ID" = "uniprot"
+                     ),
+                     selected = "gene_name"
+          ),
+          textInput(ns("gene_search"), "IDs to search", 
+                   placeholder = "Enter gene IDs (comma-separated)"),
           div(
             style = "display: flex; gap: 10px;",
             actionButton(ns("search_btn"), "Search"),
@@ -79,32 +89,41 @@ data_server <- function(id, main_session, user_info) {
     search_results <- reactiveVal(NULL)
     
     observeEvent(input$search_btn, {
-      req(input$gene_search)
+      req(input$gene_search, input$id_type)
       genes <- trimws(strsplit(input$gene_search, ",")[[1]])
       
       # Use the same ordered experiments
-      ordered_experiments <- user_info$experiments
-      
-      # Create matrix with ordered experiment IDs
-      presence_matrix <- matrix(
-        runif(length(ordered_experiments) * length(genes)) < 0.3,
-        nrow = length(ordered_experiments),
-        ncol = length(genes),
-        dimnames = list(
-          sapply(ordered_experiments, function(exp) exp$id),
-          genes
-        )
-      )
-      
-      # Convert to list format expected by the grid code
-      results <- lapply(seq_along(genes), function(i) {
-        list(
-          gene_id = genes[i],
-          present_in = presence_matrix[, i]  # Get column i for this gene
-        )
-      })
-      
-      search_results(results)
+      ordered_experiments <- user_info$experiments[order(sapply(user_info$experiments, function(exp) exp$id))]
+      exp_ids_to_search <- as.character(sapply(ordered_experiments, function(exp) exp$id))
+      # Assuming presence_matrix is a data frame where:
+      # - row names are experiment IDs
+      # - column names are gene IDs
+      # - values are TRUE/FALSE for presence/absence
+      results <- search_molecules(user_info, input$id_type, genes, exp_ids_to_search)
+      print("search_molecules results status:")
+      print(results$status)
+      print(results$msg)
+      presence_matrix <- results$out
+    
+      print(presence_matrix)
+      # display warning message if colnames(presence_matrix) is different from genes
+      if (is.null(presence_matrix) || length(setdiff(genes, colnames(presence_matrix))) != 0) {
+        showModal(modalDialog(
+          title = "",
+          "Some genes were not found in the database. Please check id type or spelling."
+        ))
+      }
+      if (is.null(presence_matrix)) {
+        search_results(NULL)
+      }
+      else{
+      display_presence <- matrix(FALSE, nrow = length(exp_ids_to_search), ncol = dim(presence_matrix)[2])
+      rownames(display_presence) <- exp_ids_to_search
+      colnames(display_presence) <- colnames(presence_matrix)
+      display_presence[match(rownames(presence_matrix), exp_ids_to_search), ] <- presence_matrix
+      print(display_presence)
+      search_results(display_presence)
+      }
     })
     
     # Add clear button observer
@@ -113,51 +132,55 @@ data_server <- function(id, main_session, user_info) {
       updateTextInput(session, "gene_search", value = "")  # Clear the input field
     })
     
-    # Updated helper function for the gene grid
+    # Helper function for the gene grid
     createGeneGrid <- function(experiments, gene_results) {
-      genes <- sapply(gene_results, function(x) x$gene_id)
-      
-      tags$div(
-        style = "display: inline-block;",
-        # Gene names as column headers
+      # Error handling wrapper
+      tryCatch({
         tags$div(
-          style = "display: flex; gap: 2px; margin-bottom: 5px;",
-          lapply(genes, function(gene) {
-            tags$div(
-              style = "min-width: 50px; padding: 0 5px; text-align: center;
-                       white-space: nowrap; font-weight: bold;",
-              gene
-            )
-          })
-        ),
-        # Grid of dots
-        tags$div(
-          lapply(experiments, function(exp) {
-            tags$div(
-              style = "display: flex; gap: 2px; height: 20px; align-items: center; 
-                       margin: 2px 0;",
-              lapply(gene_results, function(gene_result) {
-                is_present <- if (!is.null(gene_result$present_in) && 
-                                !is.null(exp$id)) {
-                  result <- gene_result$present_in[as.character(exp$id)]
-                  if (is.na(result)) FALSE else result
-                } else {
-                  FALSE
-                }
-                
-                tags$div(
-                  style = "min-width: 50px; display: flex; justify-content: center;",
+          style = "display: inline-block;",
+          # Gene names as column headers
+          tags$div(
+            style = "display: grid; grid-auto-columns: auto; grid-auto-flow: column; gap: 40px; margin-bottom: 10px;",
+            tags$div(style = "width: 40px;"),
+            lapply(colnames(gene_results), function(gene) {
+              tags$div(
+                style = "display: flex; justify-content: center; align-items: center; 
+                         min-width: 60px; padding: 0 10px; height: 20px; font-weight: bold;",
+                gene
+              )
+            })
+          ),
+          # Grid of dots
+          tags$div(
+            lapply(experiments, function(exp) {
+              tags$div(
+                style = "display: grid; grid-auto-columns: auto; grid-auto-flow: column; gap: 40px; 
+                         height: 20px; align-items: center; margin: 2px 0;",
+                tags$div(style = "width: 40px;"),
+                lapply(colnames(gene_results), function(gene) {
+                  is_present <- gene_results[as.character(exp$id), gene]
                   tags$div(
-                    style = sprintf("width: 12px; height: 12px; border-radius: 50%%; 
-                                   background-color: %s; opacity: 0.8;",
-                               if(is_present) "#ff1493" else "#f5f5f5")   # #cd69c9
+                    style = "display: flex; justify-content: center; align-items: center; 
+                             min-width: 60px; padding: 0 10px; height: 20px;",
+                    tags$div(
+                      style = sprintf("width: 12px; height: 12px; border-radius: 50%%; 
+                                     background-color: %s; opacity: 0.8;",
+                                     if(is_present) "#ff1493" else "#f5f5f5")
+                    )
                   )
-                )
-              })
-            )
-          })
+                })
+              )
+            })
+          )
         )
-      )
+      },
+      error = function(e) {
+        # On error, return just the experiment links
+        tags$div(
+          style = "color: red; margin-bottom: 10px;",
+          paste("Error:", e$message)
+        )
+      })
     }
     
     # Utility function to generate a card UI dynamically
@@ -168,7 +191,7 @@ data_server <- function(id, main_session, user_info) {
           id = ns(paste0("card_", exp_id)), 
           card_header(exp_title),
           fluidRow(
-            column(6, show_exp_details(exp_id, user_info)),
+            column(6, show_exp_details(user_info, exp_id)),
             #column(4, actionButton(ns(paste0("get_tab_", exp_id)), "Get Analysis Results")),
             #column(2, actionButton(ns(paste0("remove_", exp_id)), "Hide"))
             column(4, div(style = "text-align: right;",

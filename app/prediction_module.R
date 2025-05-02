@@ -57,7 +57,10 @@ prediction_ui <- function(id) {
           card_header("Secretion Prediction Search"),
           layout_columns(
             selectInput(ns("predction_id_type"), "Select ID Type:", 
-                       choices = c("ensembl_gene_id", "ensembl_peptide_id", "uniprot", "gene_name")),
+                       choices = c("Ensembl Gene ID" = "ensembl_gene_id",
+                                   "Ensembl Peptide ID" = "ensembl_peptide_id",
+                                   "Gene Name" = "gene_name",
+                                   "Uniprot ID" = "uniprot")),
             layout_columns(
               textAreaInput(
               inputId = ns("search"),

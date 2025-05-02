@@ -87,8 +87,7 @@ plot_ui <- function(id){
         column(4, 
                textAreaInput(ns("click_gene_list"), "Selected Genes (comma-separated):", 
                              placeholder = "Click on points in volcano plot to add gene names here", rows = 3),
-               selectInput(ns("id_type"), "id Type:",
-                           choices = NULL),
+               selectInput(ns("id_type"), "id Type:", choices = NULL),
                textAreaInput(ns("typed_gene_list"), "Selected Genes (comma-separated):", 
                              placeholder = "Type the gene names here", rows = 3),
                actionButton(ns("get_genes"), "plot genes"),
@@ -299,11 +298,15 @@ plot_server <- function(id, user_info, exp_id, molecule_type) {
     observeEvent(molecule_type, {
       if (molecule_type == 'Protein'){
         updateSelectInput(session, "id_type",
-                         choices = c("ensembl_gene_id", "ensembl_peptide_id", "uniprot", "gene_name"),
+                         choices = c("Gene Name" = "gene_name",
+                                     "Ensembl Gene ID" = "ensembl_gene_id",
+                                     "Ensembl Peptide ID" = "ensembl_peptide_id",
+                                     "Uniprot ID" = "uniprot_id"),
                          selected = "gene_name")
       } else if (molecule_type == 'RNA'){
         updateSelectInput(session, "id_type",
-                         choices = c("ensembl_gene_id", "gene_name"),
+                         choices = c("Gene Name" = "gene_name",
+                                     "Ensembl Gene ID" = "ensembl_gene_id"),
                          selected = "gene_name")
       }
     })
