@@ -191,7 +191,7 @@ plot_server <- function(id, user_info, exp_id, molecule_type) {
     rv <- reactiveValues(initialized = FALSE)
     
     # Get all comparisons in the given experiment from the backend
-    all_comparison <- get_all_comparisons(exp_id, user_info)
+    all_comparison <- get_all_comparisons(user_info, exp_id)
     
     # Modify the comparison handling
     observeEvent(all_comparison$out, {
@@ -206,7 +206,7 @@ plot_server <- function(id, user_info, exp_id, molecule_type) {
     comparison_data <- reactive({
       req(local_selected$is_active, rv$initialized, input$comparison)
       comp_id = all_comparison$out[input$comparison]
-      res = get_comparison_data(comp_id, user_info, molecule_type)$out
+      res = get_comparison_data(user_info, comp_id, molecule_type)$out
       #molecule_table = query_output$molecule_table
       #print(colnames(res))
       res$log10p = -log10(res$pValue)
@@ -217,14 +217,14 @@ plot_server <- function(id, user_info, exp_id, molecule_type) {
     # sample condition information for the experiment
     condition_data <- reactive({
       req(local_selected$is_active)
-      res = get_sample_conditions(exp_id, user_info)
+      res = get_sample_conditions(user_info, exp_id)
       print(dim(res$out))
       res$out
     })
 
     molecule_data <- reactive({
       req(local_selected$is_active)
-      molecule_table = get_exp_molecule(exp_id, user_info, molecule_type)$out
+      molecule_table = get_exp_molecule(user_info, exp_id, molecule_type)$out
       #colnames(molecule_table)[2] = 'gene_name'
       #print(head(molecule_table))
       molecule_table
@@ -467,10 +467,11 @@ plot_server <- function(id, user_info, exp_id, molecule_type) {
           req(selected_ids_final())  # Changed from selected_ids()
           req(condition_data())
           
-          sample_data_ls = get_exp_molecule_values(exp_id=exp_id, 
-                                                molecule_type=molecule_type, 
-                                                molecule_ids=selected_ids_final()$ids,  # Changed from selected_ids()$ids
-                                                user_info)$out
+          sample_data_ls = get_exp_molecule_values(user_info,
+                                                   exp_id=exp_id, 
+                                                   molecule_type=molecule_type, 
+                                                   molecule_ids=selected_ids_final()$ids  # Changed from selected_ids()$ids
+                                                   )$out
           rownames(sample_data_ls$res) = sample_data_ls$res$id
           print("sample_data_ls$res:")
           print(dim(sample_data_ls$res))

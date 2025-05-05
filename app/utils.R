@@ -161,23 +161,20 @@ search_molecules <- with_auth(function(token, id_type, molecule_ids, exp_ids){
 })
 
 # Helper function to parse the comparison response to get the comparison label
-comp_label = function(comp){
+comp_label <- function(comp){
   up = paste(sapply(comp$fc_up_conditions, function(cond){cond$short_name}), collapse = '-')
   down = paste(sapply(comp$fc_down_conditions, function(cond){cond$short_name}), collapse = '-')
   return(paste(up, down, sep = '_vs_'))
 }
 
-# Helper function to get all comparisons in an experiment
-get_all_comparisons <- function(exp_id, user_info) {
+get_all_comparisons <- with_auth(function(token, exp_id){
   comp_url <- paste0(url_base, "comparison-data-sets/", exp_id, "/")
-  print(comp_url)
-  
-  if (is.null(user_info$access_token)){
+  if(is.null(token)){
     comp_response <- httr::GET(comp_url, config = list())
-  }else{
-    comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
   }
-  print(comp_response$status_code)
+  else{
+    comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+  }
   if (comp_response$status_code == 200){
     comps <- httr::content(comp_response, "parsed", "application/json")
     labels <- sapply(comps, comp_label)
@@ -185,31 +182,16 @@ get_all_comparisons <- function(exp_id, user_info) {
     out = ids
     names(out) = labels 
     msg = NULL
-  } 
-  else if (comp_response$status_code == 404){
-    out = NULL
-    msg <- "No Experiment matches the given query."
+    status = 200
   }
-  else if (comp_response$status_code == 401){
-    refresh_url <- paste0(url_base, "token/refresh/")
-    refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-    if (refresh_response$status_code == 200){
-      user_info$access_token <- httr::content(refresh_response)$access
-      comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      comps <- httr::content(comp_response, "parsed", "application/json")
-      labels <- sapply(comps, comp_label)
-      ids <- sapply(comps, function(comp){comp$id})
-      out = ids
-      names(out) = labels 
-      msg = NULL
-    }
-    else{
-      msg <- "Authentication failed. Please login again."
-      out <- NULL
-    }
+  else{
+    status <- comp_response$status_code
+    out <- NULL
+    msg <- "Error getting all comparisons from the given experiment."
   }
-  return(list(out = out, msg = msg))
-} 
+  return(list(status = status, out = out, msg = msg))
+})
+
 
 # Helper function to parse the comparison data response to get the comparison dataframe
 parse_comparison_data <- function(comp_data_response, molecule_type){
@@ -241,41 +223,32 @@ parse_comparison_data <- function(comp_data_response, molecule_type){
   return(res)
 }
 
-get_comparison_data <- function(comp_id, user_info, molecule_type){
-  
+get_comparison_data <- with_auth(function(token, comp_id, molecule_type){
   comp_data_url <- paste0(url_base, "comparison-data/", comp_id, "/")
-  
-  # send request to backend to get comparison data
-  if (is.null(user_info$access_token)){
+  if(is.null(token)){
     comp_data_response <- httr::GET(comp_data_url, config = list())
-  }else{
-    comp_data_response <- httr::GET(comp_data_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
   }
-  
-  if (comp_data_response$status_code == 200){ 
-        msg <- NULL
-        out <- parse_comparison_data(comp_data_response, molecule_type=molecule_type)
-      } 
+  else{
+    comp_data_response <- httr::GET(comp_data_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+  }
+
+  if (comp_data_response$status_code == 200){
+    status <- 200
+    out <- parse_comparison_data(comp_data_response, molecule_type)
+    msg <- NULL
+  }
   else if (comp_data_response$status_code == 404){
-    out = NULL
-    msg <- "No Experiment matches the given query."
+    status <- 404
+    out <- NULL
+    msg <- "No ComparisonData matches the given query."
   }
-  else if (comp_data_response$status_code == 401){
-    refresh_url <- paste0(url_base, "token/refresh/")
-    refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-    if (refresh_response$status_code == 200){
-      user_info$access_token <- httr::content(refresh_response)$access
-      comp_data_response <- httr::GET(comp_data_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      out <- parse_comparison_data(comp_data_response)
-      msg <- NULL
-    }
-    else{
-      msg <- "Authentication failed. Please login again."
-      out <- NULL
-    }
-      }
-      return(list(out = out, msg = msg))
-}
+  else{
+    status <- comp_data_response$status_code
+    out <- NULL
+    msg <- "Error getting comparison data."
+  }
+  return(list(status = status, out = out, msg = msg))
+})
 
 # Helper function to parse the sample conditions from response
 parse_sample_conditions <- function(sample_response, molecule_type){
@@ -307,35 +280,28 @@ parse_sample_conditions <- function(sample_response, molecule_type){
 }
 
 # Helper function to get sample conditions for a given experiment id
-get_sample_conditions <- function(exp_id, user_info){
+get_sample_conditions <- with_auth(function(token, exp_id){
   sample_url <- paste0(url_base, "sample-data-sets/", exp_id, "/")
-  if (is.null(user_info$access_token)){
+  if(is.null(token)){
     sample_response <- httr::GET(sample_url, config = list())
-  }else{
-    sample_response <- httr::GET(sample_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
   }
+  else{
+    sample_response <- httr::GET(sample_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+  }
+  
   if (sample_response$status_code == 200){
+    status <- 200
     out <- parse_sample_conditions(sample_response)
     msg <- NULL
-  }else if (sample_response$status_code == 404){
-    msg <- "No SampleDataSet matches the given query."
-    out <- NULL
-  }else if (sample_response$status_code == 401){
-    refresh_url <- paste0(url_base, "token/refresh/")
-    refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-    if (refresh_response$status_code == 200){
-      user_info$access_token <- httr::content(refresh_response)$access
-      sample_response <- httr::GET(sample_url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      out <- parse_sample_conditions(sample_response)
-      msg <- NULL
-    }
-    else{
-      msg <- "Authentication failed. Please login again."
-      out <- NULL
-    }
   }
-  return(list(out = out, msg = msg))
-}
+  else{
+    status <- sample_response$status_code
+    out <- NULL
+    msg <- "Error getting sample conditions."
+  }
+  return(list(status = status, out = out, msg = msg))
+})
+
 
 # Helper function to parse the molecule information
 parse_exp_molecule <- function(exp_molecule_response, molecule_type){
@@ -363,33 +329,31 @@ parse_exp_molecule <- function(exp_molecule_response, molecule_type){
 }
 
 # Helper function to get all molecule information for a given experiment id
-get_exp_molecule <- function(exp_id, user_info, molecule_type){
-    url <- paste0(url_base, "experiment-molecules/", exp_id, "/" )
-    if (is.null(user_info$access_token)){
-      exp_molecule_response <- httr::GET(url, config = list())
-    }else{
-      exp_molecule_response <- httr::GET(url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-    }
-    if (exp_molecule_response$status_code == 200){
-      out <- parse_exp_molecule(exp_molecule_response, molecule_type)
-      msg <- NULL
-    }else if (exp_molecule_response$status_code == 404){
-      msg <- "No Experiment matches the given query."
-      out <- NULL
-    }else if (exp_molecule_response$status_code == 401){
-      refresh_url <- paste0(url_base, "token/refresh/")
-      refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-      if (refresh_response$status_code == 200){
-        user_info$access_token <- httr::content(refresh_response)$access
-        exp_molecule_response <- httr::GET(url, httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token)))
-      }
-    }
-    else{
-      msg <- "Authentication failed. Please login again."
-      out <- NULL
-    }
-    return(list(out = out, msg = msg))
-}
+get_exp_molecule <- with_auth(function(token, exp_id, molecule_type){
+  url <- paste0(url_base, "experiment-molecules/", exp_id, "/" )
+  if(is.null(token)){
+    exp_molecule_response <- httr::GET(url, config = list())
+  }
+  else{
+    exp_molecule_response <- httr::GET(url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+  }
+  if (exp_molecule_response$status_code == 200){
+    status <- 200
+    out <- parse_exp_molecule(exp_molecule_response, molecule_type)
+    msg <- NULL
+  }
+  else if (exp_molecule_response$status_code == 404){
+    status <- 404
+    out <- NULL
+    msg <- "No Experiment matches the given query."
+  }
+  else{
+    status <- exp_molecule_response$status_code
+    out <- NULL
+    msg <- "Error getting molecule information."
+  }
+  return(list(status = status, out = out, msg = msg))
+})
 
 
 # Helper function to parse the sample-molecule value
@@ -449,74 +413,46 @@ parse_sample_molecule_values <- function(sample_data_response, molecule_type){
 }
 
 # Helper function to get molecule values for a list of SampleDataSet ids and a list of molecule ids
-get_exp_molecule_values <- function(exp_id, molecule_type, molecule_ids, user_info){
+get_exp_molecule_values <- with_auth(function(token, exp_id, molecule_type, molecule_ids){
   exp_molecule_data_url <- paste0(url_base, "experiment-sample-data/", exp_id, "/")
-  
   # Ensure molecule_ids is always a list with at least one element
   molecule_ids <- as.numeric(molecule_ids)
-  request_body <- list(
+  payload <- list(
     identifiers = I(molecule_ids)  # Use I() to prevent single element from being unboxed
   )
-  
-  print("Request URL:")
-  print(exp_molecule_data_url)
-  print("Request body (before JSON):")
-  print(str(request_body))
-  print("Number of IDs:")
-  print(length(molecule_ids))
-  
-  if (is.null(user_info$access_token)){
+
+  if(is.null(token)){
     exp_molecule_data_response <- httr::POST(
       exp_molecule_data_url, 
-      body = request_body,
+      body = payload,
       encode = "json",
       content_type("application/json")
     )
-  } else {
+  }
+  else{
     exp_molecule_data_response <- httr::POST(
       exp_molecule_data_url, 
-      body = request_body,
+      body = payload,
       encode = "json",
       content_type("application/json"),
-      httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token))
+      httr::add_headers(Authorization = sprintf("Bearer %s", token))
     )
   }
   
-  print("Status code:")
-  print(exp_molecule_data_response$status_code)
-  
-  if (exp_molecule_data_response$status_code != 200) {
-    print("Error response:")
-    print(rawToChar(exp_molecule_data_response$content))
-    return(list(out = NULL, msg = "API request failed"))
-  }
-  
   if (exp_molecule_data_response$status_code == 200) {
-    exp_molecule_data <- parse_sample_molecule_values(exp_molecule_data_response, molecule_type)
-    return(list(out = exp_molecule_data, msg = NULL))
+    status <- 200
+    out <- parse_sample_molecule_values(exp_molecule_data_response, molecule_type)
+    msg <- NULL
   }
-  else if (exp_molecule_data_response$status_code == 404) {
-    return(list(out = NULL, msg = "No Experiment matches the given query."))
+
+  else{
+    status <- exp_molecule_data_response$status_code
+    out <- NULL
+    msg <- rawToChar(exp_molecule_data_response$content)
   }
-  else if (exp_molecule_data_response$status_code == 401) {
-    refresh_url <- paste0(url_base, "token/refresh/")
-    refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-    if (refresh_response$status_code == 200){
-      user_info$access_token <- httr::content(refresh_response)$access
-      exp_molecule_data_response <- httr::POST(
-        exp_molecule_data_url, 
-        body = request_body,
-        content_type("application/json"),
-        httr::add_headers(Authorization = sprintf("Bearer %s", user_info$access_token))
-      )
-      exp_molecule_data <- parse_sample_molecule_values(exp_molecule_data_response, molecule_type)
-      return(list(out = exp_molecule_data, msg = NULL))
-    }
-    else{
-      return(list(out = NULL, msg = "Authentication failed. Please login again."))
-    }
-  }
-}
+  return(list(status = status, out = out, msg = msg))
+})
+
 
 # Helper function to get data for secretion prediction
 get_prediction_data <- function(id_type, ids){
