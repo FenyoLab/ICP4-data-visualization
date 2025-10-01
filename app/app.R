@@ -1,12 +1,12 @@
 library(shiny)
+library(shinyjs)
 library(bslib)
 library(httr)
 
-source('login_module.R')
 source('home_module.R')
 source('data_module.R')
+source('methods_module.R')
 source('analysis_module.R')
-source('prediction_module.R')
 
 options(shiny.session.timeout = 0)
 
@@ -67,19 +67,30 @@ ui <- page_fillable(
     # Main navigation tabs
     tabPanel("Home", home_ui("home")),
     tabPanel("Data", data_ui("data")),
-    tabPanel("Prediction", prediction_ui("prediction")),
+    tabPanel("Methods", methods_ui("methods")),
+    #tabPanel("Prediction", prediction_ui("prediction")),
     #tabPanel("Analysis", analysis_ui("analysis")),
     
     # Login dropdown on the right
-      login_ui("login")
-    )
+    #login_ui("login"),
+    #removing annoying styling from these elements
+    tags$script(HTML("
+      $(document).ready(function() {
+        console.log($('.navbar-header'))
+        console.log($('#main_navbar'))
+        $('.navbar-header').removeClass('navbar-header');
+        $('#main_navbar').css('flex-direction', 'unset');
+      });
+    "))
   )
+)
 
+#THIS FUNCTION INITIALIZES THE SERVER
 server <- function(input, output, session) {
-  # Initialize login module
+  # First initialize login module
   user_info <- login_server("login", session)
-
-  # Call the data module server
+  #print("INITIALIZING SERVER")
+  # Then call the data module server
   data_server("data", session, user_info)
   prediction_server("prediction")
   

@@ -1,180 +1,218 @@
 library(ggplot2)
 library(plotly)
 library(heatmaply)
+library(dplyr)
 
 # query functions
 #url_base = "https://api.secrepedia.org/secrepediadb/"
 url_base = "https://dev-api.secrepedia.org/secrepediadb/"
 
 # Authentication function
-with_auth <- function(operation_fn) {
-  # Any request function always uses user_info
-  function(user_info, ...){
-   # make request with operation_fn and the access token
-   make_request <- function(token){
-    tryCatch({
-      # the operation_fn should return a list with status, out, msg, handling known errors inside the operation_fn
-      request_results <- operation_fn(token, ...)
-      request_results
-    },
-    error = function(e){
-      list(
-        status = "error",  # Changed from status_code to status
-        out = NULL,
-        msg = sprintf("Unexpected error:%s",e$message)
-      )
-    })
-   }
+# with_auth <- function(operation_fn) {
+#   # Any request function always uses user_info
+#   function(user_info, ...){
+#    # make request with operation_fn and the access token
+#    make_request <- function(token){
+#     tryCatch({
+#       # the operation_fn should return a list with status, out, msg, handling known errors inside the operation_fn
+#       request_results <- operation_fn(token, ...)
+#       request_results
+#     },
+#     error = function(e){
+#       list(
+#         status = "error",  # Changed from status_code to status
+#         out = NULL,
+#         msg = sprintf("Unexpected error:%s",e$message)
+#       )
+#     })
+#    }
+# 
+#    # first try to make request with the current access token
+#    if (!is.null(user_info$access_token)){
+#     results <- make_request(user_info$access_token)
+#     
+#     # if unauthorized, try to refresh the token
+#     if (!is.null(results$status) && results$status == 401) {  # Added null check
+#       refresh_url <- paste0(url_base, "token/refresh/")
+#       refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
+#       if (refresh_response$status_code == 200) {    # refresh success
+#           user_info$access_token <- httr::content(refresh_response)$access
+#           # try again with the new token
+#           results <- make_request(user_info$access_token)
+#       }
+#       else{
+#         # fail to refresh, urge user to login again
+#         results <- list(
+#           status = "error",
+#           out = NULL,
+#           msg = "Authentication failed, Please login again."
+#         )
+#       }
+#     }
+#    } 
+#    else {
+#     # no access token, send request without header
+#     results <- make_request(NULL)
+#    }
+#    return(results)
+#   }
+# }
 
-   # first try to make request with the current access token
-   if (!is.null(user_info$access_token)){
-    results <- make_request(user_info$access_token)
-    
-    # if unauthorized, try to refresh the token
-    if (!is.null(results$status) && results$status == 401) {  # Added null check
-      refresh_url <- paste0(url_base, "token/refresh/")
-      refresh_response <- httr::POST(refresh_url, body = list(refresh = user_info$refresh_token), encode = "json")
-      if (refresh_response$status_code == 200) {    # refresh success
-          user_info$access_token <- httr::content(refresh_response)$access
-          # try again with the new token
-          results <- make_request(user_info$access_token)
-      }
-      else{
-        # fail to refresh, urge user to login again
-        results <- list(
-          status = "error",
-          out = NULL,
-          msg = "Authentication failed, Please login again."
-        )
-      }
-    }
-   } 
-   else {
-    # no access token, send request without header
-    results <- make_request(NULL)
-   }
-   return(results)
-  }
-}
-
-show_exp_details <- with_auth(function(token, exp_id) {
-  detail_url <- paste0(url_base, "experiment/", exp_id, "/")
-  if (is.null(token)){
-    detail_response <- httr::GET(detail_url, config = list())
-  }
-  else{
-    detail_response <- httr::GET(detail_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
-  }
-  if (detail_response$status_code == 200) {
-    details <- httr::content(detail_response, "parsed", "application/json")
-    status <- 200
-    out <- details$description
-    msg <- NULL
-  }
-  else {
-    status <- detail_response$status_code
-    out <- NULL
-    msg <- "Error fetching experiment details."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# NOT NEEDED WHEN ACCESSING LOCAL FILES SINCE DESCRIPTION NOT PROVIDED
+# show_exp_details <- with_auth(function(token, exp_id) {
+#   detail_url <- paste0(url_base, "experiment/", exp_id, "/")
+#   if (is.null(token)){
+#     detail_response <- httr::GET(detail_url, config = list())
+#   }
+#   else{
+#     detail_response <- httr::GET(detail_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+#   }
+#   if (detail_response$status_code == 200) {
+#     details <- httr::content(detail_response, "parsed", "application/json")
+#     status <- 200
+#     out <- details$description
+#     msg <- NULL
+#   }
+#   else {
+#     status <- detail_response$status_code
+#     out <- NULL
+#     msg <- "Error fetching experiment details."
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 # Helper function to parse and get the molecule presence matrix
-parse_molecule_presence <- function(molecule_presence_response){
-  molecule_presence_data <- httr::content(molecule_presence_response, "parsed", "application/json")
-  print("molecule_presence_data:")
-  print(molecule_presence_data)
-  molecule_ids  <- names(molecule_presence_data[[1]][[1]])
-  exp_ids <- names(molecule_presence_data[[1]])
-  print(exp_ids)
-
-  if (length(molecule_ids) == 0){    # handle the case where no valid molecule ids are matched with the input
-    res = NULL
-  }
-  else{
-    print(exp_ids)
-    print(molecule_ids)
-    # Create list of dataframes with unique column names for presence
-    res <- lapply(seq_along(molecule_presence_data[[1]]), function(i) {
-      entry <- molecule_presence_data[[1]][[i]]
-      df <- data.frame(id = names(entry),
-                      presence = unlist(entry))
-      # Use the exp_id as the column name
-      colnames(df)[2] <- names(molecule_presence_data[[1]])[i]
-      return(df)
-    })
-    
-    # Merge all dataframes by 'id' column
-    res <- Reduce(function(x, y) merge(x, y, by = "id", all = TRUE), res)
-    
-    # Set proper row and column names
-    rownames(res) <- res$id
-    res <- res[sort(molecule_ids), c('id',exp_ids)]
-    print("res after sorting:")
-    print(res)
-    res$id <- NULL
-    
-    # For single experiment case, ensure matrix structure is correct
-    if (length(exp_ids) == 1) {
-      res <- matrix(res[[1]], nrow = 1)
-      rownames(res) <- exp_ids
-      colnames(res) <- sort(molecule_ids)
-
-    } else {
-      # Clean up row names before transpose
-      res <- t(res)  # Transpose
-
-    }
-  }
-  print(res)
-  return(res)
-}
+# parse_molecule_presence <- function(molecule_presence_response){
+#   molecule_presence_data <- httr::content(molecule_presence_response, "parsed", "application/json")
+#   print("molecule_presence_data:")
+#   print(molecule_presence_data)
+#   molecule_ids  <- names(molecule_presence_data[[1]][[1]])
+#   exp_ids <- names(molecule_presence_data[[1]])
+#   print(exp_ids)
+# 
+#   if (length(molecule_ids) == 0){    # handle the case where no valid molecule ids are matched with the input
+#     res = NULL
+#   }
+#   else{
+#     print(exp_ids)
+#     print(molecule_ids)
+#     # Create list of dataframes with unique column names for presence
+#     res <- lapply(seq_along(molecule_presence_data[[1]]), function(i) {
+#       entry <- molecule_presence_data[[1]][[i]]
+#       df <- data.frame(id = names(entry),
+#                       presence = unlist(entry))
+#       # Use the exp_id as the column name
+#       colnames(df)[2] <- names(molecule_presence_data[[1]])[i]
+#       return(df)
+#     })
+#     
+#     # Merge all dataframes by 'id' column
+#     res <- Reduce(function(x, y) merge(x, y, by = "id", all = TRUE), res)
+#     
+#     # Set proper row and column names
+#     rownames(res) <- res$id
+#     res <- res[sort(molecule_ids), c('id',exp_ids)]
+#     print("res after sorting:")
+#     print(res)
+#     res$id <- NULL
+#     
+#     # For single experiment case, ensure matrix structure is correct
+#     if (length(exp_ids) == 1) {
+#       res <- matrix(res[[1]], nrow = 1)
+#       rownames(res) <- exp_ids
+#       colnames(res) <- sort(molecule_ids)
+# 
+#     } else {
+#       # Clean up row names before transpose
+#       res <- t(res)  # Transpose
+# 
+#     }
+#   }
+#   #print(res)
+#   return(res)
+# }
 
 # Helper function to query if a list of molecules are present in the list of experiments
-search_molecules <- with_auth(function(token, id_type, molecule_ids, exp_ids){
-  molecule_search_url <- paste0(url_base, "search-molecules/")
-  payload <- list(id_type = id_type,
-                  identifiers = as.list(molecule_ids),
-                  experiment_ids = as.list(exp_ids))
+# data_files are full paths to txt files
+search_molecules <- function(id_type, filtered_genes, data_files){ #removed with_auth from function
+
+  experiment_results <- list()
   
-  if (is.null(token)){
-    molecule_search_response <- httr::POST(
-      molecule_search_url, 
-      body = payload,
-      encode = "json",
-      content_type("application/json")
+  # Get the list of molecules you're searching for
+  search_column <- ifelse(id_type == "gene_name", "gene", "gene_id")
+  for(file in data_files){
+    
+    df <- read.table(file, header=TRUE)
+    
+    if(!(search_column %in% colnames(df)))
+      next #skip processing this file of gene column doesn't exist
+    
+    # Extract experiment ID from filename (adjust this based on your naming convention)
+    exp_id <- tools::file_path_sans_ext(basename(file))
+
+    # # Check presence of each searched gene in this dataset
+    # gene_presence <- list()
+    # for(gene in filtered_genes) {
+    #   if (toupper(gene) %in% toupper(df[[search_column]])){
+    #     browser()
+    #     lfc <- df[df[[search_column]]==gene & df[["SeqRun"]]=="all","log2FoldChange"]
+    #     p_adj <- df[df[[search_column]]==gene & df[["SeqRun"]]=="all","padj"][1]
+    #     browser()
+    #     if(lfc > 0 & p_adj < 0.05) #upregulated
+    #       gene_presence[[gene]] <- 1
+    #     else if(lfc < 0 & p_adj < 0.05) #downregulated
+    #       gene_presence[[gene]] <- -1
+    #     else
+    #       gene_presence[[gene]] <- 0 #ns
+    #   }
+    # }
+    
+    if("SeqRun" %in% colnames(df)) # only ICP4 files have SeqRun col
+      df <- df[df[["SeqRun"]] == "all", ]
+    
+    # Filter to only genes that exist in the data
+    df <- df[toupper(df[[search_column]]) %in% toupper(filtered_genes), ]
+    missing_genes <- setdiff(toupper(filtered_genes), toupper(df[[search_column]]))
+    
+    
+    # Vectorized categorization
+    
+    gene_presence <- case_when( #for SINGLE EXPERIMENT, assign gene presence category for each of filtered genes
+      is.na(df$padj) ~ NA, #no p value provided, gene excluded during DESeq quality control
+      df$log2FoldChange > 0 & df$padj < 0.05 ~ 1,   # upregulated
+      df$log2FoldChange < 0 & df$padj < 0.05 ~ -1,  # downregulated
+      .default = 0  # not significant
     )
-  } 
-  else {
-    molecule_search_response <- httr::POST(
-      molecule_search_url, 
-      body = payload,
-      encode = "json",
-      content_type("application/json"),
-      httr::add_headers(Authorization = sprintf("Bearer %s", token))
+    
+    # Create named vector for lookup
+    names(gene_presence) <- toupper(df[[search_column]])
+    gene_presence[missing_genes] <- -2 #assign values to missing genes not found in gene_presence
+    gene_presence <- gene_presence[filtered_genes] #ensure consistent order of genes after assigning missing gene values
+    
+    # Only include experiments that have at least one hit
+    if(any(is.na(unlist(gene_presence))) | any(unlist(gene_presence) != -2)){ #if there is at least 1 NA, means gene was found but no p val; if -2 for all, means no gene found in any experiment, so filter out these experiments
+      experiment_results[[exp_id]] <- gene_presence
+    }
+  }
+  experiment_names <- names(experiment_results)
+  # Clean approach using your experiment_results
+  res <- NULL
+  if(length(experiment_names) > 0){ #gene was found in at least 1 experiment
+    experiment_data <- do.call(cbind, lapply(experiment_results, unlist)) #Since R IS STUPID and likes convert single row dataframe inputs to column, must force vector to be matrix
+    res <- data.frame(
+      id = rownames(experiment_data), #genes
+      experiment_data,
+      stringsAsFactors = FALSE,
+      check.names = FALSE
     )
+    browser()
+    rownames(res) <- res[["id"]]
+    res[["id"]] <- NULL
+    #res <- res[complete.cases(res), ] #remove rows with all NA values (genes filtered during quality control)
   }
-  
-  #print(molecule_search_response$status_code)
-  if (molecule_search_response$status_code == 200){
-    molecule_presence_data <- parse_molecule_presence(molecule_search_response)
-    status <- 200
-    out <- molecule_presence_data
-    msg <- NULL
-  }
-  else if (molecule_search_response$status_code == 400){
-    status <- 400
-    error_content <- httr::content(molecule_search_response, "parsed")
-    out <- NULL
-    msg <- error_content$detail
-  }
-  else{
-    status <- molecule_search_response$status_code
-    out <- NULL
-    msg <- "Error searching molecules."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+  return(res) #the "out" variable of the original function, no msg or status
+  #return(list(status = status, out = out, msg = msg))
+}
 
 # Helper function to parse the comparison response to get the comparison label
 comp_label <- function(comp){
@@ -183,88 +221,91 @@ comp_label <- function(comp){
   return(paste(up, down, sep = '_vs_'))
 }
 
-get_all_comparisons <- with_auth(function(token, exp_id){
-  comp_url <- paste0(url_base, "comparison-data-sets/", exp_id, "/")
-  if(is.null(token)){
-    comp_response <- httr::GET(comp_url, config = list())
-  }
-  else{
-    comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
-  }
-  if (comp_response$status_code == 200){
-    comps <- httr::content(comp_response, "parsed", "application/json")
-    labels <- sapply(comps, comp_label)
-    ids <- sapply(comps, function(comp){comp$id})
-    out = ids
-    names(out) = labels 
-    msg = NULL
-    status = 200
-  }
-  else{
-    status <- comp_response$status_code
-    out <- NULL
-    msg <- "Error getting all comparisons from the given experiment."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# get_all_comparisons <- with_auth(function(token, exp_id){
+#   comp_url <- paste0(url_base, "comparison-data-sets/", exp_id, "/")
+#   if(is.null(token)){
+#     comp_response <- httr::GET(comp_url, config = list())
+#   }
+#   else{
+#     comp_response <- httr::GET(comp_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+#   }
+#   if (comp_response$status_code == 200){
+#     comps <- httr::content(comp_response, "parsed", "application/json")
+#     labels <- sapply(comps, comp_label)
+#     ids <- sapply(comps, function(comp){comp$id})
+#     out = ids
+#     names(out) = labels 
+#     msg = NULL
+#     status = 200
+#   }
+#   else{
+#     status <- comp_response$status_code
+#     out <- NULL
+#     msg <- "Error getting all comparisons from the given experiment."
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 
 # Helper function to parse the comparison data response to get the comparison dataframe
-parse_comparison_data <- function(comp_data_response, molecule_type){
-  comp_data <- httr::content(comp_data_response, "parsed", "application/json")
-  #print(comp_data)
-  res <- data.frame(
-    id = sapply(comp_data, function(entry){entry$molecule$id}),
-    log2FC = sapply(comp_data, function(entry){if(is.null(entry$log2FC)) NA else entry$log2FC}),
-    pValue = sapply(comp_data, function(entry){if(is.null(entry$pValue)) NA else entry$pValue}),
-    qValue = sapply(comp_data, function(entry){if(is.null(entry$qValue)) NA else entry$qValue})
-  )
-  res$display_name = sapply(comp_data, function(entry){
-    if(is.null(entry$molecule$display_name)) NA else entry$molecule$display_name})
-  res$gene_biotype = sapply(comp_data, function(entry){
-    if(is.null(entry$molecule$gene_biotype)) NA else entry$molecule$gene_biotype})
-  res$gene_description = sapply(comp_data, function(entry){
-    if(is.null(entry$molecule$gene_description)) NA else entry$molecule$gene_description})
-  if (molecule_type == 'RNA'){
-    # use ensembl_gene_id as display_id for RNA
-    res$display_id = sapply(comp_data, function(entry){
-      if(is.null(entry$molecule$ensembl_gene_id)) NA else entry$molecule$ensembl_gene_id})
-  }
-  else if (molecule_type == 'Protein'){
-    res$display_id = sapply(comp_data, function(entry){
-      if(is.null(entry$molecule$uniprot_id)) NA else entry$molecule$uniprot_id})
-  }
-  res = res[,c('id', 'display_id', 'display_name', 'gene_biotype', 'gene_description', 'log2FC', 'pValue', 'qValue')]
+# parse_comparison_data <- function(comp_data_response, molecule_type){
+#   comp_data <- httr::content(comp_data_response, "parsed", "application/json")
+#   #print(comp_data)
+#   res <- data.frame(
+#     id = sapply(comp_data, function(entry){entry$molecule$id}),
+#     log2FC = sapply(comp_data, function(entry){if(is.null(entry$log2FC)) NA else entry$log2FC}),
+#     pValue = sapply(comp_data, function(entry){if(is.null(entry$pValue)) NA else entry$pValue}),
+#     qValue = sapply(comp_data, function(entry){if(is.null(entry$qValue)) NA else entry$qValue})
+#   )
+#   res$display_name = sapply(comp_data, function(entry){
+#     if(is.null(entry$molecule$display_name)) NA else entry$molecule$display_name})
+#   res$gene_biotype = sapply(comp_data, function(entry){
+#     if(is.null(entry$molecule$gene_biotype)) NA else entry$molecule$gene_biotype})
+#   res$gene_description = sapply(comp_data, function(entry){
+#     if(is.null(entry$molecule$gene_description)) NA else entry$molecule$gene_description})
+#   if (molecule_type == 'RNA'){
+#     # use ensembl_gene_id as display_id for RNA
+#     res$display_id = sapply(comp_data, function(entry){
+#       if(is.null(entry$molecule$ensembl_gene_id)) NA else entry$molecule$ensembl_gene_id})
+#   }
+#   else if (molecule_type == 'Protein'){
+#     res$display_id = sapply(comp_data, function(entry){
+#       if(is.null(entry$molecule$uniprot_id)) NA else entry$molecule$uniprot_id})
+#   }
+#   res = res[,c('id', 'display_id', 'display_name', 'gene_biotype', 'gene_description', 'log2FC', 'pValue', 'qValue')]
+# 
+#   return(res)
+# }
 
-  return(res)
-}
 
-get_comparison_data <- with_auth(function(token, comp_id, molecule_type){
-  comp_data_url <- paste0(url_base, "comparison-data/", comp_id, "/")
-  if(is.null(token)){
-    comp_data_response <- httr::GET(comp_data_url, config = list())
-  }
-  else{
-    comp_data_response <- httr::GET(comp_data_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
-  }
-
-  if (comp_data_response$status_code == 200){
-    status <- 200
-    out <- parse_comparison_data(comp_data_response, molecule_type)
-    msg <- NULL
-  }
-  else if (comp_data_response$status_code == 404){
-    status <- 404
-    out <- NULL
-    msg <- "No ComparisonData matches the given query."
-  }
-  else{
-    status <- comp_data_response$status_code
-    out <- NULL
-    msg <- "Error getting comparison data."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# get_comparison_data <- with_auth(function(token, comp_id, molecule_type){
+#   #new params should be subdir and txt comparison file name, NO MOLECULE TYPE
+#   comp_data_url <- paste0(url_base, "comparison-data/", comp_id, "/")
+# 
+#   if(is.null(token)){
+#     comp_data_response <- httr::GET(comp_data_url, config = list())
+#   }
+#   else{
+#     comp_data_response <- httr::GET(comp_data_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+#   }
+# 
+#   if (comp_data_response$status_code == 200){
+#     status <- 200
+#     out <- parse_comparison_data(comp_data_response, molecule_type)
+#     msg <- NULL
+#   }
+#   else if (comp_data_response$status_code == 404){
+#     status <- 404
+#     out <- NULL
+#     msg <- "No ComparisonData matches the given query."
+#   }
+#   else{
+#     status <- comp_data_response$status_code
+#     out <- NULL
+#     msg <- "Error getting comparison data."
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 # Helper function to parse the sample conditions from response
 parse_sample_conditions <- function(sample_response, molecule_type){
@@ -296,27 +337,27 @@ parse_sample_conditions <- function(sample_response, molecule_type){
 }
 
 # Helper function to get sample conditions for a given experiment id
-get_sample_conditions <- with_auth(function(token, exp_id){
-  sample_url <- paste0(url_base, "sample-data-sets/", exp_id, "/")
-  if(is.null(token)){
-    sample_response <- httr::GET(sample_url, config = list())
-  }
-  else{
-    sample_response <- httr::GET(sample_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
-  }
-  
-  if (sample_response$status_code == 200){
-    status <- 200
-    out <- parse_sample_conditions(sample_response)
-    msg <- NULL
-  }
-  else{
-    status <- sample_response$status_code
-    out <- NULL
-    msg <- "Error getting sample conditions."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# get_sample_conditions <- with_auth(function(token, exp_id){
+#   sample_url <- paste0(url_base, "sample-data-sets/", exp_id, "/")
+#   if(is.null(token)){
+#     sample_response <- httr::GET(sample_url, config = list())
+#   }
+#   else{
+#     sample_response <- httr::GET(sample_url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+#   }
+#   
+#   if (sample_response$status_code == 200){
+#     status <- 200
+#     out <- parse_sample_conditions(sample_response)
+#     msg <- NULL
+#   }
+#   else{
+#     status <- sample_response$status_code
+#     out <- NULL
+#     msg <- "Error getting sample conditions."
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 
 # Helper function to parse the molecule information
@@ -344,32 +385,32 @@ parse_exp_molecule <- function(exp_molecule_response, molecule_type){
     return(res)
 }
 
-# Helper function to get all molecule information for a given experiment id
-get_exp_molecule <- with_auth(function(token, exp_id, molecule_type){
-  url <- paste0(url_base, "experiment-molecules/", exp_id, "/" )
-  if(is.null(token)){
-    exp_molecule_response <- httr::GET(url, config = list())
-  }
-  else{
-    exp_molecule_response <- httr::GET(url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
-  }
-  if (exp_molecule_response$status_code == 200){
-    status <- 200
-    out <- parse_exp_molecule(exp_molecule_response, molecule_type)
-    msg <- NULL
-  }
-  else if (exp_molecule_response$status_code == 404){
-    status <- 404
-    out <- NULL
-    msg <- "No Experiment matches the given query."
-  }
-  else{
-    status <- exp_molecule_response$status_code
-    out <- NULL
-    msg <- "Error getting molecule information."
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# # Helper function to get all molecule information for a given experiment id
+# get_exp_molecule <- with_auth(function(token, exp_id, molecule_type){
+#   url <- paste0(url_base, "experiment-molecules/", exp_id, "/" )
+#   if(is.null(token)){
+#     exp_molecule_response <- httr::GET(url, config = list())
+#   }
+#   else{
+#     exp_molecule_response <- httr::GET(url, httr::add_headers(Authorization = sprintf("Bearer %s", token)))
+#   }
+#   if (exp_molecule_response$status_code == 200){
+#     status <- 200
+#     out <- parse_exp_molecule(exp_molecule_response, molecule_type)
+#     msg <- NULL
+#   }
+#   else if (exp_molecule_response$status_code == 404){
+#     status <- 404
+#     out <- NULL
+#     msg <- "No Experiment matches the given query."
+#   }
+#   else{
+#     status <- exp_molecule_response$status_code
+#     out <- NULL
+#     msg <- "Error getting molecule information."
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 
 # Helper function to parse the sample-molecule value
@@ -429,45 +470,45 @@ parse_sample_molecule_values <- function(sample_data_response, molecule_type){
 }
 
 # Helper function to get molecule values for a list of SampleDataSet ids and a list of molecule ids
-get_exp_molecule_values <- with_auth(function(token, exp_id, molecule_type, molecule_ids){
-  exp_molecule_data_url <- paste0(url_base, "experiment-sample-data/", exp_id, "/")
-  # Ensure molecule_ids is always a list with at least one element
-  molecule_ids <- as.numeric(molecule_ids)
-  payload <- list(
-    identifiers = I(molecule_ids)  # Use I() to prevent single element from being unboxed
-  )
-
-  if(is.null(token)){
-    exp_molecule_data_response <- httr::POST(
-      exp_molecule_data_url, 
-      body = payload,
-      encode = "json",
-      content_type("application/json")
-    )
-  }
-  else{
-    exp_molecule_data_response <- httr::POST(
-      exp_molecule_data_url, 
-      body = payload,
-      encode = "json",
-      content_type("application/json"),
-      httr::add_headers(Authorization = sprintf("Bearer %s", token))
-    )
-  }
-  
-  if (exp_molecule_data_response$status_code == 200) {
-    status <- 200
-    out <- parse_sample_molecule_values(exp_molecule_data_response, molecule_type)
-    msg <- NULL
-  }
-
-  else{
-    status <- exp_molecule_data_response$status_code
-    out <- NULL
-    msg <- rawToChar(exp_molecule_data_response$content)
-  }
-  return(list(status = status, out = out, msg = msg))
-})
+# get_exp_molecule_values <- with_auth(function(token, exp_id, molecule_type, molecule_ids){
+#   exp_molecule_data_url <- paste0(url_base, "experiment-sample-data/", exp_id, "/")
+#   # Ensure molecule_ids is always a list with at least one element
+#   molecule_ids <- as.numeric(molecule_ids)
+#   payload <- list(
+#     identifiers = I(molecule_ids)  # Use I() to prevent single element from being unboxed
+#   )
+# 
+#   if(is.null(token)){
+#     exp_molecule_data_response <- httr::POST(
+#       exp_molecule_data_url, 
+#       body = payload,
+#       encode = "json",
+#       content_type("application/json")
+#     )
+#   }
+#   else{
+#     exp_molecule_data_response <- httr::POST(
+#       exp_molecule_data_url, 
+#       body = payload,
+#       encode = "json",
+#       content_type("application/json"),
+#       httr::add_headers(Authorization = sprintf("Bearer %s", token))
+#     )
+#   }
+#   
+#   if (exp_molecule_data_response$status_code == 200) {
+#     status <- 200
+#     out <- parse_sample_molecule_values(exp_molecule_data_response, molecule_type)
+#     msg <- NULL
+#   }
+# 
+#   else{
+#     status <- exp_molecule_data_response$status_code
+#     out <- NULL
+#     msg <- rawToChar(exp_molecule_data_response$content)
+#   }
+#   return(list(status = status, out = out, msg = msg))
+# })
 
 
 # Helper function to get data for secretion prediction
@@ -623,4 +664,10 @@ parse_prediction_data <- function(query_data){
     print(paste("Error creating final dataframe:", e$message))
     return(NULL)
   })
+  
+}
+
+get_local_comparison_data <- function(file_path){
+  df <- read.table(file_path, header = TRUE)
+  return(df)
 }

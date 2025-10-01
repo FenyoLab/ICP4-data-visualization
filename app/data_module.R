@@ -16,68 +16,117 @@ data_ui <- function(id) {
         ),
         uiOutput(ns("exp_cards_container"))
       )
-    )
+    ),
     # Additional tabs will be inserted here
+    
+    #-----STYLES-----
+    tags$head(
+      tags$style(HTML("
+         .legend-item{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.8rem;
+         }  
+         
+         .dot{
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+         }
+      "))
+    )
+    #-----END STYLES-----
   )
 }
 
 data_server <- function(id, main_session, user_info) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
+    experiment_data <- reactiveValues(
+      name = NULL,
+      txt_files = NULL,
+      main_file = NULL,
+      selected_files = NULL
+    )
     
     output$experiment_links <- renderUI({
       # Create ordered experiment list once to ensure consistency
-      print("experiments")
-      #print(user_info$experiments)
-      ordered_experiments <- user_info$experiments[order(sapply(user_info$experiments, function(exp) exp$id))]
-      print(dim(search_results()))
-      print(length(ordered_experiments))
+
+      experiments <- user_info$experiments
+      #base_txt_files <- NULL
+
       div(
         style = "display: flex; align-items: start; width: 100%;",
         # Left column with experiment links
-        div(
-          style = "min-width: fit-content;",
-          tags$div(style = "height: 25px;"),
-          tags$ul(
-            style = "margin: 0; padding: 0; list-style-type: none;",
-            lapply(ordered_experiments, function(exp) {
-              tags$li(
-                style = "height: 20px; display: flex; align-items: center; 
+        if(is.null(experiment_data$name)){
+          #print(experiment_data)
+          div(
+            style = "min-width: fit-content;",
+            tags$div(style = "height: 25px;"),
+            tags$ul(
+              style = "margin: 0; padding: 0; list-style-type: none;",
+              lapply(experiments, function(exp) {
+                exp_label <- strsplit(exp, "_")[[1]][1]
+                tags$li(
+                  style = "height: 20px; display: flex; align-items: center; 
                          padding-right: 20px; margin: 2px 0;",
-                  actionLink(ns(paste0("exp_link_", exp$id)), exp$title)
+                  actionLink(ns(exp_label), exp)
                 )
-            })
+              })
+            )
           )
-        ),
-        # Middle column with gene grid (when present)
-        if (!is.null(search_results()) && dim(search_results())[1] == length(ordered_experiments)) {
+        }
+        else{ #experiment selected
+          div(
+            style = "min-width: fit-content;",
+            actionLink(ns("back_to_experiments"), "← Back to Experiments", 
+                       style = "color: #666;"),
+            tags$div(style = "height: 25px;"),
+            tags$ul(
+              style = "margin: 0; padding: 0; list-style-type: none;",
+              lapply(experiment_data$selected_files, function(file) { #file = file_name (no ext)
+                tags$li(
+                  style = "height: 20px; display: flex; align-items: center; 
+                           padding-right: 20px; margin: 2px 0;",
+                  actionLink(ns(file), file)
+                )
+              })
+            )
+          )
+        }
+        ,
+        #Middle column with gene grid (when present)
+        if (!is.null(search_results())){ #&& dim(search_results())[1] == length(experiments)) {
           div(
             style = "position: sticky; left: 0;",
-            createGeneGrid(ordered_experiments, search_results())
+            createGeneGrid(search_results())
           )
         },
         # Right column with search panel
-        div(
-          style = "min-width: 200px; padding-left: 20px; border-left: 1px solid #ddd; 
-                   margin-left: auto;",
-          h5("Quick molecule search"),
-          selectInput(ns("id_type"), "Select ID Type",
-                     choices = c(
-                       "Gene Name" = "gene_name",
-                       "Ensembl Gene ID" = "ensembl_gene_id",
-                       "Ensembl Peptide ID" = "ensembl_peptide_id",
-                       "Uniprot ID" = "uniprot"
-                     ),
-                     selected = "gene_name"
-          ),
-          textInput(ns("gene_search"), "IDs to search", 
-                   placeholder = "Enter IDs (comma-separated)"),
+        if(!is.null(experiment_data$name)){
           div(
-            style = "display: flex; gap: 10px;",
-            actionButton(ns("search_btn"), "Search", icon = icon("magnifying-glass")),
-            actionButton(ns("clear_btn"), "Clear", icon = icon("xmark"))
+            style = "min-width: 200px; padding-left: 20px; border-left: 1px solid #ddd; 
+                   margin-left: auto;",
+            h5("Quick molecule search"),
+            selectInput(ns("id_type"), "Select ID Type",
+                        choices = c(
+                          "Gene Name" = "gene_name", #first is text in drop down, second is actual value submitted in form
+                          "Ensembl Gene ID" = "ensembl_gene_id"
+                          #"Ensembl Peptide ID" = "ensembl_peptide_id",
+                          #"Uniprot ID" = "uniprot"
+                        ),
+                        selected = "gene_name"
+            ),
+            textInput(ns("gene_search"), "Values to search", 
+                      placeholder = "Enter values (comma-separated)"),
+            div(
+              style = "display: flex; gap: 10px;",
+              actionButton(ns("search_btn"), "Search", icon = icon("magnifying-glass")),
+              actionButton(ns("clear_btn"), "Clear", icon = icon("xmark"))
+            )
           )
-        )
+        }
       )
     })
     
@@ -86,68 +135,72 @@ data_server <- function(id, main_session, user_info) {
     created_tabs <- reactiveValues(tabs = list())
     #selected_exp <- reactiveVal(NULL)  # Store the selected experiment
     
-    # Reactive elements and helper functions to show presence of genes in experiments
+
+    # -----REACTIVE ELEMENTS/HELPER FUNCTIONS TO FILTER EXPERIMENTS BY PRESENCE OF SPECIFED GENES-----
     search_results <- reactiveVal(NULL)
     
     observeEvent(input$search_btn, {
-      req(input$gene_search, input$id_type)
-      genes <- trimws(strsplit(input$gene_search, ",")[[1]])
-      
+      req(input$gene_search, input$id_type) #get input and its type (gene name, id, etc)
+      genes <- trimws(strsplit(input$gene_search, ",")[[1]]) 
       # Use the same ordered experiments
-      ordered_experiments <- user_info$experiments[order(sapply(user_info$experiments, function(exp) exp$id))]
-      exp_ids_to_search <- as.character(sapply(ordered_experiments, function(exp) exp$id))
+      #experiments <- user_info$experiments#[order(sapply(user_info$experiments, function(exp) exp$id))]
+      #exp_ids_to_search <- as.character(sapply(ordered_experiments, function(exp) exp$id))
+      #exp_ids <- tools::file_path_sans_ext(basename(file))
       
       #print(paste("exp_ids_to_search:", exp_ids_to_search))
-      print(paste("user_token NULL:", is.null(user_info$access_token)))
+      #print(paste("user_token NULL:", is.null(user_info$access_token)))
       
       # Assuming presence_matrix is a data frame where:
       # - row names are experiment IDs
       # - column names are gene IDs
       # - values are TRUE/FALSE for presence/absence
-      results <- search_molecules(user_info, input$id_type, genes, exp_ids_to_search)
-      print("search_molecules results status:")
-      print(results$status)
-      print(results$msg)
-      presence_matrix <- results$out
-    
-      print(presence_matrix)
+      full_folder_name <- paste0( c("experiments/", experiment_data$name, "_comparisons"), collapse="" )
+      full_file_paths <- list.files(full_folder_name, pattern = "\\.txt$", full.names = TRUE)
+      full_file_paths <- full_file_paths[!grepl("^(GSEA|logCPM)", full_file_paths)]
+      
+      presence_df <- search_molecules(input$id_type, genes, full_file_paths) #returns df with rownames as genes and colnames as experiments; values either TRUE/FALSE for gene presence
+      #print(presence_matrix)
       # display warning message if colnames(presence_matrix) is different from genes
-      if (is.null(presence_matrix) || length(setdiff(genes, colnames(presence_matrix))) != 0) {
+      if (is.null(presence_df) || length(rownames(presence_df)) < length(genes)) {
         showModal(modalDialog(
           title = "",
-          "Some genes were not found in the database. Please check id type or spelling."
+          "Some genes were either filtered out during quality control or not found in the database. Please check id type or spelling."
         ))
+        experiment_data$selected_files <- gsub("\\.txt$","",experiment_data$txt_files)
       }
-      if (is.null(presence_matrix)) {
+      
+      if (is.null(presence_df)) {
+        experiment_data$selected_files <- gsub("\\.txt$","",experiment_data$txt_files)
         search_results(NULL)
       }
       else{
-      display_presence <- matrix(FALSE, nrow = length(exp_ids_to_search), ncol = dim(presence_matrix)[2])
-      rownames(display_presence) <- exp_ids_to_search
-      colnames(display_presence) <- colnames(presence_matrix)
-      display_presence[match(rownames(presence_matrix), exp_ids_to_search), ] <- presence_matrix
-      print(display_presence)
-      search_results(display_presence)
+        display_presence <- as.matrix(presence_df)
+        experiment_data$selected_files <- colnames(presence_df)
+        search_results(display_presence)
       }
     })
+    
+    #-----END FILTER FUNCTIONS-----
     
     # Add clear button observer
     observeEvent(input$clear_btn, {
       search_results(NULL)  # Reset the search results
+      experiment_data$selected_files <- gsub("\\.txt$","",experiment_data$txt_files)
       updateTextInput(session, "gene_search", value = "")  # Clear the input field
     })
     
     # Helper function for the gene grid
-    createGeneGrid <- function(experiments, gene_results) {
+    createGeneGrid <- function(gene_results) { #data files = file_name (no ext), only selected ones
       # Error handling wrapper
       tryCatch({
         tags$div(
           style = "display: inline-block;",
           # Gene names as column headers
+          tags$div(style = "height: 25px;"),
           tags$div(
             style = "display: grid; grid-auto-columns: auto; grid-auto-flow: column; gap: 40px; margin-bottom: 10px;",
-            tags$div(style = "width: 40px;"),
-            lapply(colnames(gene_results), function(gene) {
+            # tags$div(style = "width: 40px;"),
+            lapply(rownames(gene_results), function(gene) {
               tags$div(
                 style = "display: flex; justify-content: center; align-items: center; 
                          min-width: 60px; padding: 0 10px; height: 20px; font-weight: bold;",
@@ -157,25 +210,60 @@ data_server <- function(id, main_session, user_info) {
           ),
           # Grid of dots
           tags$div(
-            lapply(experiments, function(exp) {
+            lapply(colnames(gene_results), function(file) { #CHANGED FROM DATA FILES, file = file_name (no ext, just as in presence matrix)
+              #print(file) #ensuring files are in same order as list
               tags$div(
                 style = "display: grid; grid-auto-columns: auto; grid-auto-flow: column; gap: 40px; 
                          height: 20px; align-items: center; margin: 2px 0;",
-                tags$div(style = "width: 40px;"),
-                lapply(colnames(gene_results), function(gene) {
-                  is_present <- gene_results[as.character(exp$id), gene]
+                # tags$div(style = "width: 40px;"),
+                lapply(rownames(gene_results), function(gene) {
+                  lfc <- gene_results[gene, file]
                   tags$div(
                     style = "display: flex; justify-content: center; align-items: center; 
                              min-width: 60px; padding: 0 10px; height: 20px;",
                     tags$div(
                       style = sprintf("width: 12px; height: 12px; border-radius: 50%%; 
                                      background-color: %s; opacity: 0.8;",
-                                     if(is_present) "#ff1493" else "#f5f5f5")
+                                     switch(as.character(lfc), "-1" = "dodgerblue", "0" = "lightgray", "1" = "darkorange", "-2" = "red",  "slategray")) #,downregulated, ns, or upregulated, not found, or NA (no p value)
                     )
                   )
                 })
               )
             })
+          ),
+          # Legend section
+          tags$div(
+            style = "display: flex; justify-content: center; column-gap: 20px; margin-top: 15px; flex-wrap:wrap; min-width:225px; margin-right:15px",
+            tags$div(
+              class = "legend-item",
+              tags$div( class = "dot",
+                        style = "background-color: dodgerblue;"),
+                "Downregulated"
+            ),
+            tags$div(
+              class = "legend-item",
+              tags$div( class = "dot",
+                        style = "background-color: darkorange;"),
+                "Upregulated"
+            ),
+            tags$div(
+              class = "legend-item",
+              tags$div( class = "dot",
+                        style = "background-color: lightgray;"),
+                "Not significant"
+            ),
+            tags$div(
+              class = "legend-item",
+              tags$div( class = "dot",
+                        style = "background-color: slategray;"),
+                "NA"
+            ),
+            tags$div(
+              class = "legend-item",
+              tags$div(class = "dot",
+                       style = "background-color: red;"),
+                "Not found"
+            )
           )
         )
       },
@@ -187,25 +275,23 @@ data_server <- function(id, main_session, user_info) {
         )
       })
     }
-
-  
     
     # Utility function to generate a card UI dynamically
-    generate_exp_card <- function(exp_id, exp_title, user_info) {
+    generate_exp_card <- function(file_name) { #file_name = file with ext
+      print("generating card")
+      base_file_name <- gsub("\\.txt$", "", file_name)
       div(
         class = "mb-3",  # adds margin-bottom of size 3 (Bootstrap spacing)
         card(
-          id = ns(paste0("card_", exp_id)), 
-          card_header(exp_title),
+          id = ns(paste0("card_", file_name)), 
+          card_header(base_file_name),
           fluidRow(
-            column(6, show_exp_details(user_info, exp_id)),
-            #column(4, actionButton(ns(paste0("get_tab_", exp_id)), "Get Analysis Results")),
-            #column(2, actionButton(ns(paste0("remove_", exp_id)), "Hide"))
+            column(6, div()),#show_exp_details(user_info, exp_id)),
             column(4, div(style = "text-align: right;",
-              actionButton(ns(paste0("get_tab_", exp_id)), "Get Analysis Results")
+              actionButton(ns(paste0("get_tab_", file_name)), "Get Analysis Results")
             )),
             column(2, div(style = "text-align: right;",
-              actionButton(ns(paste0("remove_", exp_id)), "Hide")
+              actionButton(ns(paste0("remove_", file_name)), "Hide")
             ))
           )
         )
@@ -217,42 +303,57 @@ data_server <- function(id, main_session, user_info) {
       do.call(tagList, active_cards$cards)
     })
     
-     # Wrap the experiment link and remove button setup in observe()
+     # Experiment onclick event to bring up txt file list under this experiment directory
     observe({
-      lapply(user_info$experiments, function(exp) {
-        exp_link_id <- paste0("exp_link_", exp$id)
+      experiments <- user_info$experiments
+      lapply(experiments, function(exp){
         
-        observeEvent(input[[exp_link_id]], {
-          if (!as.character(exp$id)%in% names(active_cards$cards)) {
-            active_cards$cards[[as.character(exp$id)]] <- generate_exp_card(exp$id, exp$title, user_info)
-            #selected_exp(exp$id)
+        exp_title <- strsplit(exp, "_")[[1]][1] #exp folder names are of format exp_comparisons
+        
+        observeEvent(input[[exp_title]], {
+          
+          experiment_data$name <- exp_title #without "_comparison"
+          
+          # Find corresponding full folder name
+          txt_files_path <- file.path("experiments", exp)
+          
+          if (dir.exists(txt_files_path)) {
+            txt_files <- list.files(path = txt_files_path, pattern = "*\\.txt$", full.names = FALSE) 
+            txt_files <- txt_files[!grepl("^(GSEA|logCPM)", txt_files)] #only get non-GSEA/logCPM data (only DEseq)
+            experiment_data$txt_files <- txt_files
+            base_txt_files <- gsub("\\.txt$","",txt_files)
+            experiment_data$selected_files <- base_txt_files
+          } else {
+            experiment_data$txt_files <- NULL
+            experiment_data$selected_files <- NULL
+            #print("Directory not found or no txt files")
           }
-        })
-        
-        # Set up remove button observer for this experiment
-        observeEvent(input[[paste0("remove_", exp$id)]], {
-          active_cards$cards[[as.character(exp$id)]] <- NULL
         })
       })
     })
 
-    # Helper function to insert or switch to a tab
-    insert_or_switch_tab <- function(exp_id, exp_name, molecule_type) {
-      tab_id <- paste0("tab_", gsub(" ", "_", exp_id))
+    # Helper function to insert or switch to a tab, also set focus of selected data file
+    insert_or_switch_tab <- function(file_name){# file_name.txt, not full path
+      experiment_data$main_file <- file_name
+      base_file_name <- gsub("\\.txt$", "", file_name)
+      base_file_name <- gsub("-", "_", base_file_name) #used for CARD HEADER, TAB ID, CLOSE BUTTON ID, AND PLOT ID
+      tab_id <- paste0("tab_", base_file_name)
       close_button_id <- paste0("close_", tab_id)
       plot_id <- paste0("plot_", tab_id) 
-      print(paste("Current input$data_tabs value:", input$data_tabs))  # Debug print
+
       if (!tab_id %in% names(created_tabs$tabs)) {
-        print(paste("Creating new tab", tab_id))
+        #print(paste("Creating new tab", tab_id))
+        full_folder_name <- paste0(experiment_data$name, "_comparisons")
+        full_file_path <- file.path("experiments", full_folder_name, file_name)
         new_tab <- tabPanel(
-          title = paste("Experiment", exp_id),
+          title = paste("Experiment", base_file_name),
           value = tab_id,
           fluidRow(
             class = "mt-2 mb-4",  # mt-2 reduces top margin, mb-4 increases bottom margin
-            column(9, h4(exp_name, class = "mb-0")),  # mb-0 removes margin below h3
+            column(9, h4(base_file_name, class = "mb-0")),  # mb-0 removes margin below h3
             column(3, actionButton(ns(close_button_id), "Close Tab"))
           ),
-          plot_ui(ns(plot_id))
+          plot_ui(ns(plot_id)) #plots log2FC data from file
         )
         
         insertTab(
@@ -265,10 +366,10 @@ data_server <- function(id, main_session, user_info) {
         )
         
         # Store the module instance
-        created_tabs$tabs[[tab_id]] <- list(
-          name = exp_name,
+        created_tabs$tabs[[tab_id]] <- list( #tab_<base_file_name>
+          name = file_name,
           plot_id = plot_id,
-          module = plot_server(plot_id, user_info, exp_id, molecule_type)
+          module = plot_server(plot_id, user_info, full_file_path)
         )
         
         # Set up remove button observer for this tab
@@ -295,21 +396,50 @@ data_server <- function(id, main_session, user_info) {
           updateTabsetPanel(session, "data_tabs", selected = "Overview")
         }, ignoreInit = TRUE)
         
-      } else {
-        print(paste("Switching to existing tab:", tab_id))
+      } else { # switching to new tab
+        #print(paste("Switching to existing tab:", tab_id))
         updateTabsetPanel(session, "data_tabs", selected = tab_id)
       }
     }
 
     # Observer for the Get Analysis Results button, open or switch to the tab
     observe({
-      lapply(user_info$experiments, function(exp) {
-        tab_id <- paste0("get_tab_", exp$id)
-        
+      txt_files <- experiment_data$txt_files
+      lapply(txt_files, function(file_name) { #file_name.txt (not full path)
+        tab_id <- paste0("get_tab_", file_name)
         observeEvent(input[[tab_id]], {
-          insert_or_switch_tab(exp$id, exp$title, exp$molecule_type)
+          insert_or_switch_tab(file_name)
         }, ignoreInit = TRUE, ignoreNULL = TRUE)
       })
+    })
+    
+    # Implement back button
+    observeEvent(input$back_to_experiments, {
+      experiment_data$name <- NULL
+      experiment_data$txt_files <- NULL
+      experiment_data$selected_files <- NULL
+      experiment_data$main_file <- NULL
+      search_results(NULL)
+      active_cards$cards <- list()
+    })
+    
+    # File selection observer (same as before)
+    observe({
+      if (!is.null(experiment_data$txt_files)) {
+        lapply(experiment_data$txt_files, function(file_name) { #file_name with ext. (not full path)
+          base_file_name <- gsub("\\.txt$","",file_name)
+          observeEvent(input[[base_file_name]], {
+            #remove existing active card to show only 1 at a time
+            active_cards$cards <- list()
+            active_cards$cards[[file_name]] <- generate_exp_card(file_name)
+          })
+          
+          # Set up remove button observer for this experiment
+          observeEvent(input[[paste0("remove_", file_name)]], {
+            active_cards$cards[[file_name]] <- NULL
+          })
+        })
+      }
     })
   })
 }
