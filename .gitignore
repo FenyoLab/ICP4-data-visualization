@@ -1,5 +1,7 @@
 
 .Rproj.user/
 .DS_Store
-app/experiments/
-app/other-experiment-data/
+app/experiments/*
+app/other-experiment-data/*
+docker-compose.yml
+nginx.conf
