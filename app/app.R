@@ -7,6 +7,7 @@ source('home_module.R')
 source('data_module.R')
 source('methods_module.R')
 source('analysis_module.R')
+source('login_module.R')
 
 options(shiny.session.timeout = 0)
 
@@ -59,7 +60,7 @@ ui <- page_fillable(
   ),
   
   navbarPage(
-    title = "Secrepedia",
+    title = "Herp-IE-dia",
     id = "main_navbar",
     position = "fixed-top",
     fluid = TRUE,
@@ -85,6 +86,9 @@ ui <- page_fillable(
   )
 )
 
+
+
+
 #THIS FUNCTION INITIALIZES THE SERVER
 server <- function(input, output, session) {
   # First initialize login module
@@ -92,7 +96,7 @@ server <- function(input, output, session) {
   #print("INITIALIZING SERVER")
   # Then call the data module server
   data_server("data", session, user_info)
-  prediction_server("prediction")
+  #prediction_server("prediction")
   
 }
 

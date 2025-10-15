@@ -205,7 +205,7 @@ search_molecules <- function(id_type, filtered_genes, data_files){ #removed with
       stringsAsFactors = FALSE,
       check.names = FALSE
     )
-    browser()
+    #browser()
     rownames(res) <- res[["id"]]
     res[["id"]] <- NULL
     #res <- res[complete.cases(res), ] #remove rows with all NA values (genes filtered during quality control)

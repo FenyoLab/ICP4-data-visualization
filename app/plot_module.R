@@ -257,7 +257,7 @@ plot_server <- function(id, user_info, file_path){#, molecule_type) {
       #print(paste('res dataframe: ', dim(res)))
       #colnames(res)[3] = 'gene_name'
       #print(colnames(res))
-      browser()
+      #browser()
       res
     })
     # Render the interactive Plotly scatter plot with dynamic coloring
