@@ -242,7 +242,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
       
     })
     
-    #-----END FILTER FUNCTIONS-----
+    # -----END FILTER FUNCTIONS-----
     
     # Add clear button observer
     observeEvent(input$clear_btn, {
@@ -327,65 +327,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
         )
       )
     }
-    
-     # Experiment onclick event to bring up txt file list under this experiment directory
-    # observe({
-    #   #experiments <- experiment_names$names
-    #   lapply(experiments, function(exp){ #
-    # 
-    #     exp_title <- strsplit(exp, "_")[[1]][1] #exp folder names are of format exp_comparisons
-    # 
-    #     observeEvent(input[[exp_title]], {
-    # 
-    #       experiment_data$name <- exp_title #without "_comparison"
-    # 
-    #       # Find corresponding full folder name
-    #       txt_files_path <- file.path("experiments", exp)
-    # 
-    #       if (dir.exists(txt_files_path)) {
-    #         txt_files <- list.files(path = txt_files_path, pattern = "*\\.txt$", full.names = FALSE)
-    #         txt_files <- txt_files[!grepl("^(GSEA|logCPM)", txt_files)] #only get non-GSEA/logCPM data (only DEseq)
-    #         txt_files <- txt_files[!grepl("Shrink", txt_files)]
-    #         experiment_data$txt_files <- txt_files
-    #         base_txt_files <- gsub("\\.txt$","",txt_files)
-    #         experiment_data$selected_files <- base_txt_files
-    #       } else {
-    #         experiment_data$txt_files <- NULL
-    #         experiment_data$selected_files <- NULL
-    #       }
-    #     })
-    #   })
-    # })
-    # observe({
-    #   print("INSIDE THE EVENT OBSERVER")
-    #   exp_title <- strsplit(exp, "_")[[1]][1] #exp folder names are of format exp_comparisons
-    #   experiment_data$name <- exp_title #without "_comparison"
-    #   
-    #   # Find corresponding full folder name
-    #   txt_files_path <- file.path("experiments", exp)
-    #   
-    #   if (dir.exists(txt_files_path)) {
-    #     txt_files <- list.files(path = txt_files_path, pattern = "*\\.txt$", full.names = FALSE) 
-    #     txt_files <- txt_files[!grepl("^(GSEA|logCPM)", txt_files)] #only get non-GSEA/logCPM data (only DEseq)
-    #     txt_files <- txt_files[!grepl("shrink", txt_files)]
-    #     experiment_data$txt_files <- txt_files #files with ext
-    #     #set link observers
-    #     links$file_observers <- lapply(txt_files, function(file_name) {
-    #       base_file_name <- gsub("\\.txt$","",file_name)
-    #       observeEvent(input[[base_file_name]], {
-    #         print(paste("active card for", base_file_name, collapse=" "))
-    #         active_card(generate_exp_card(file_name))
-    #       })
-    #     })
-    #     base_txt_files <- gsub("\\.txt$","",txt_files)
-    #     experiment_data$selected_files <- base_txt_files #files w/o ext
-    #     
-    #   } else {
-    #     experiment_data$txt_files <- NULL
-    #     experiment_data$selected_files <- NULL
-    #     #print("Directory not found or no txt files")
-    #   }
-    # })
 
 
     # Helper function to insert or switch to a tab, also set focus of selected data file

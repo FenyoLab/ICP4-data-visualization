@@ -472,20 +472,36 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
 
       # Get sample value data
       withProgress(message = 'Retrieving molecule value data...', {
-        if(grepl(file_path,"siNTC"))
+        if(grepl("siNTC",file_path))
           logcpm_file <- r"(experiments\siNTC_comparisons\logCPM_all_samples.txt)"
         else
           logcpm_file <- r"(experiments\ICP4_comparisons\logCPM_all_samples.txt)"
-        df <- read.table(logcpm_file, header=TRUE)
-        #browser()
-        df_filtered <- df[rownames(df) %in% local_selected$gene_ids,]
+        df <- read.table(logcpm_file, header=TRUE) #columns are exp, rows are genes
+        colnames(df) <- gsub("RR", "mDBD", colnames(df))
+        
+        experiment_cat <- sapply(strsplit(colnames(df), "_"), function(x) { #remove exp id from exp type
+          #if(length(x) > 1) {
+          paste(x[-1], collapse = "_")
+          # } else {
+          #   x[1]
+          # }
+        })
+        exp_cat_mask <- sapply(experiment_cat, function(cat){ #T/F vector same length as exp_cat, not only true values
+          grepl(cat, file_path)
+        })
+
+        df_filtered <- df[rownames(df) %in% local_selected$gene_ids, exp_cat_mask]
+        browser()
+        
         if(input$id_type == "gene_name"){
           new_rownames <- gene_data[rownames(df_filtered)]
-          new_rownames <- make.unique(new_rownames, sep = "_") #make them unique, in case difference gene ids point to the same gene
+          new_rownames <- make.unique(new_rownames, sep = "_") #make them unique, in case different gene ids point to the same gene
           rownames(df_filtered) <- new_rownames
         }
+        new_colnames <- make.unique(names(exp_cat_mask[exp_cat_mask]),sep="-") #get only TRUE values from mask vector
+        colnames(df_filtered) <- new_colnames
         heatmap_data(df_filtered)
-        #browser()
+        browser()
         
       })
 
@@ -508,7 +524,7 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
           #   }
           # })
           
-          browser()
+          #browser()
   
           # Ensure matrix structure when creating heatmap_data
           print(dim(heatmap_data()))
@@ -533,9 +549,6 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
           }
 
           data_type_title <- "logCPM" #sample_data()$data_type
-          
-          #browser()
-          
   
           print("Final data range:")
           print(range(heatmap_data(), na.rm = TRUE, finite = TRUE))
@@ -547,32 +560,36 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
           height_px <- max(400, num_rows * 40)
         }) #END OF GETTING HEATMAP DATA
         
-        experiment_types <- sapply(strsplit(colnames(heatmap_data()), "_"), function(x) {
-          if(length(x) > 1) {
-            paste(x[-1], collapse = "_")
-          } else {
-            "Unknown"
-          }
+        experiment_types <- sapply(strsplit(colnames(heatmap_data()), "-"), function(x) {
+          x[1]
+          # if(length(x) > 1) {
+          #   paste(x[-length(x)], collapse = "_")
+          # } else {
+          #   x[1]
+          # }
         })
         
         # Create color palette for experiment types
         unique_types <- unique(experiment_types)
         type_colors <- scales::hue_pal()(length(unique_types))
+        browser()
         names(type_colors) <- unique_types
-        #col_colors <- type_colors[experiment_types]
+        col_colors <- type_colors[experiment_types]
         browser()
         
         col_annotation <- data.frame(
           Experiment = factor(experiment_types, levels = unique_types)
         )
-        rownames(col_annotation) <- colnames(heatmap_data())
+        
+        browser()
+        #rownames(col_annotation) <- colnames(heatmap_data())
 
         withProgress(message = 'Generating heatmap...', {
           heatmaply(
             heatmap_data(),
             dendrogram = "both",
-            col_side_colors = col_annotation,
-            col_side_palette = type_colors,
+            col_side_colors = col_annotation, #exp type groups
+            col_side_palette = type_colors,  #color coding of exp types
             colors = color_palette,
             breaks = breaks,
             Rowv = T, Colv = T,
@@ -586,7 +603,7 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
             main = data_type_title,
             showlegend = TRUE,
             branches_lwd = 0.3,  # Control dendrogram line thickness
-            label_names = c("Gene", "Sample", "Value") 
+            label_names = c("Gene", "Sample", "Value"),
           ) %>%
           layout(
             xaxis = list(

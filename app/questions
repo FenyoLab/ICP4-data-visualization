@@ -1,1 +1,0 @@
-Why are there 2 calls made to the data url, 1 for login and the other when actually retrieving data?
