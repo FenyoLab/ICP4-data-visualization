@@ -31,8 +31,11 @@ RUN wget https://download3.rstudio.org/ubuntu-14.04/x86_64/shiny-server-1.5.16.9
 # Create a directory for the Shiny app
 RUN mkdir -p /srv/shiny-server/
 
+# Copy your custom Shiny Server config
+COPY shiny-server.conf /etc/shiny-server/shiny-server.conf
+
 # Expose the port for Shiny Server
-EXPOSE 3838
+EXPOSE 3839
 
 # Run Shiny Server
 CMD ["/usr/bin/shiny-server"]
