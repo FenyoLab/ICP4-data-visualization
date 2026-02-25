@@ -60,7 +60,7 @@ ui <- page_fillable(
   ),
   
   navbarPage(
-    title = "Secrepedia",
+    title = "Herp-IE-dia",
     id = "main_navbar",
     position = "fixed-top",
     fluid = TRUE,
@@ -90,8 +90,6 @@ ui <- page_fillable(
 server <- function(input, output, session) {
   # First initialize login module
   experiments <- get_experiments()#reactiveValues(names=get_experiments())# get_experiments()#login_server("login", session)
-  #browser()
-  #print("INITIALIZING SERVER")
   # Then call the data module server
   data_server("data", session, experiments)
   #prediction_server("prediction")

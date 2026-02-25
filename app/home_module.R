@@ -22,21 +22,6 @@ home_ui <- function(id) {
         transcriptional program responsive to ICP4. This indicates that the DNA-binding domain of ICP4, which is required for 
         site-specific DNA binding to the virus genome, may also regulate binding to the host genome. Together these data provide
         a comprehensive transcriptomic analysis of how wild type and mutant ICP4 expression impact cellular gene expression in uninfected cells.")
-    ),
-  
-    card(
-      card_header("Team"),
-      p("These studies are supported by NIH grant RC2DK129961 and will be performed as part of a multi-institutional collaborative between the labs of:"),
-      
-      HTML("
-      <ul>
-        <li> <a href='https://cohenlab.rockefeller.edu/' target='_blank'>Paul Cohen</a> (Rockefeller University) </li>
-        <li> <a href='https://lab.rockefeller.edu/chait/' target='_blank'>Brian Chait</a> (Rockefeller University) </li>
-        <li> <a href='https://fenyolab.org/' target='_blank'>David Fenyö</a> (New York University School of Medicine) </li>
-        <li> <a href='https://saghatelian.salk.edu/' target='_blank'>Alan Saghatelian</a> (Salk Institute for Biological Studies) </li>
-        <li> <a href='http://www.tinglab.org/' target='_blank'>Alice Ting</a> (Stanford University) </li>
-      </ul>
-      ")
     )
   )
 }
