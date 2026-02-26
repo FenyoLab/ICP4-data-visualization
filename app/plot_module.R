@@ -112,7 +112,7 @@ plot_ui <- function(id){
 }
 
 
-plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type) { and experiments was user_info
+plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule_type) { and experiments was user_info
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -161,7 +161,7 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
       #local_selected$is_fresh_session <- TRUE  # Reset fresh session flag
       
       # Reset button tracking
-      last_button_value(0)
+      #last_button_value(0)
       
       clear_genes()
       
@@ -192,16 +192,10 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
     observeEvent(input$id_type,{
       print("setting up selectize")
       if (input$id_type == "gene_name")
-        updateSelectizeInput(session,"genes",choices = unique(gene_data), server=TRUE)
+        updateSelectizeInput(session,"genes",choices = unique(gene_id_to_name), server=TRUE)
       else
-        updateSelectizeInput(session,"genes",choices = names(gene_data), server=TRUE)
+        updateSelectizeInput(session,"genes",choices = names(gene_id_to_name), server=TRUE)
     })
-    
-    # Initialize empty text areas for this instance
-    # isolate({
-    #   updateTextAreaInput(session, "click_gene_list", value = "")
-    #   updateTextAreaInput(session, "typed_gene_list", value = "")
-    # })
 
     # Add a reactive value to track initialization
     rv <- reactiveValues(initialized = FALSE)
@@ -449,6 +443,7 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
 
     #Create the heatmap output only when get_genes is clicked (or when rendered?)
     observeEvent(input$get_genes, {
+      req(input$genes)
       #req(active_card()) #analysis results of file must already be generated
       #req(local_selected$gene_ids) # there must be input in typed genes text input
       # gene_ids <- trimws(strsplit(input$genes, ",")[[1]])
@@ -486,12 +481,13 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
 
       # Get sample value data
       withProgress(message = 'Retrieving molecule value data...', {
-        if(grepl("siNTC",file_path))
-          logcpm_file <- r"(experiments\siNTC_comparisons\logCPM_all_samples.txt)"
+        if(grepl("mock",file_path))
+          logcpm_file <- r"(experiments\mock_comparisons\logCPM_all_samples.txt)"
         else
           logcpm_file <- r"(experiments\ICP4_comparisons\logCPM_all_samples.txt)"
         df <- read.table(logcpm_file, header=TRUE) #columns are exp, rows are ensembl gene ids
-        colnames(df) <- gsub("RR", "mDBD", colnames(df)) #rename colnames to match new filenames
+        browser()
+        colnames(df) <- gsub("RR_LL", "mDBD", colnames(df)) #rename colnames to match new filenames
         
         #browser()
         
@@ -509,26 +505,23 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
         
         typed_gene_ids <- NULL
         if (input$id_type == "gene_name") {
-          typed_genes <- setdiff(input$genes,local_selected$gene_names)
-          browser()
-          gene_ids <- gene_data[gene_data %in% typed_genes]
-          browser()
+          typed_genes <- setdiff(input$genes,local_selected$gene_names) #local_selected are genes that were clicked
+          gene_ids <- gene_id_to_name[gene_id_to_name %in% typed_genes]
           typed_gene_ids <- names(gene_ids)
-          browser()
+          
         }
         else{
           typed_gene_ids <- setdiff(input$genes,local_selected$gene_ids)
           browser()
         }
-          
+        
+        combined_gene_ids <- union(local_selected$gene_ids, typed_gene_ids)
 
-        df_filtered <- df[rownames(df) %in% local_selected$gene_ids,exp_cat_mask]#local_selected$gene_ids, exp_cat_mask]
+        df_filtered <- df[rownames(df) %in% combined_gene_ids,exp_cat_mask]#local_selected$gene_ids, exp_cat_mask]
         browser()
         
         if(input$id_type == "gene_name"){ #adjust rownames of heatmap data based on user display preference
-          browser()
-          new_rownames <- gene_data[rownames(df_filtered)] #convert gene_ids to gene_names
-          browser()
+          new_rownames <- gene_id_to_name[rownames(df_filtered)] #convert gene_ids to gene_names
           new_rownames <- make.unique(new_rownames, sep = "_") #make them unique, in case different gene ids point to the same gene
           rownames(df_filtered) <- new_rownames
         }
@@ -665,8 +658,8 @@ plot_server <- function(id, experiments, file_path, gene_data){#, molecule_type)
       clear_genes()
     })
     
-    print(paste("Namespace:", session$ns("volcano_plot"))) 
-    print('getting data')
+    #print(paste("Namespace:", session$ns("volcano_plot"))) 
+    #print('getting data')
     #browser()
     #print(paste('molecule_type: ', molecule_type))
     #Create reactiveVal to store the last selected IDs
