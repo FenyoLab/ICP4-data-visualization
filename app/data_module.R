@@ -3,6 +3,7 @@ library(xdvir)
 source('plot_module.R')
 
 data_ui <- function(id) {
+  withMathJax()
   ns <- NS(id)
   tabsetPanel(
     id = ns("data_tabs"),
@@ -75,6 +76,8 @@ data_ui <- function(id) {
 
 data_server <- function(id, main_session, experiments) { #dir names of experiments in "experiments" folder, format <exp>_comparisons
   moduleServer(id, function(input, output, session) {
+    
+    #session$sendCustomMessage("mathjax-refresh", list())
     ns <- session$ns
     
     #-----INITILIZE REACTIVE VALUES-----
@@ -102,11 +105,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     #-----PAGE RENDER SECTION-----
     
     output$experiment_links <- renderUI({ #basically left column
-
-      #div(
-      #  style = "display: flex; align-items: start; width: 100%;",
-        
-        # Left column with experiment links
+      # Left column with experiment links
       req(experiment_data$all_files) 
       div(
         style = "min-width: fit-content; overflow-x:auto;", #display flex
@@ -125,6 +124,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
                items[i].style.width = maxWidth + 'px';
              }
            });
+           
         "))
       )
       #)
@@ -154,7 +154,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
             ),
           )
         ),
-        lapply(c(experiments), function(exp_name) {
+        lapply(rev(c(experiments)), function(exp_name) {
           exp_label <- strsplit(exp_name, "_")[[1]][1] #exp name without "_comparisons"
           tags$li( #exp list item
             class="pt-3",
@@ -165,10 +165,23 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
                 style="width:225px;",
                 tags$ul(#list of all files under each exp
                   lapply(list_txt_files(exp_name),function(file_name){
+                    display_name <- strsplit(file_name,"-")[[1]][1:2]
+                    #browser()
+                    for (i in 1:length(display_name)){
+                      if (display_name[i] == "n6") {
+                        display_name[i] <- "&Delta;NTA"#"\\(\\Delta\\mathrm{NTA}\\)"
+                      } else if (display_name[i] == "n208") {
+                        display_name[i] <- "&Delta;CTA"#\\(\\Delta\\mathrm{CTA}\\)"
+                      }
+                    }
+
+                    display_name <- paste(display_name, collapse=" vs ")
+                    display_name <- gsub("_"," ",display_name)
+                      
+                    #browser()
                     tags$li(class="link", #file list item
-                            actionLink(ns(file_name),file_name))
-                  }
-                  )
+                            actionLink(ns(file_name),(HTML(display_name))))
+                  })
                 )
               ),
               div( style = "flex:1;",
@@ -179,15 +192,33 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
             )
           )
         }),
-        div( #ChipSeq div
-          class = "d-flex pt-3",
-          div(style="width:225px", HTML(paste("<b>ChipSeq:</b>"))),
-          div( style = "flex:1;",
+        #tags$script(HTML("MathJax.typeset();")),
+        tags$li( #ChipSeq div
+          class = "pt-3",
+          HTML("<b><u>ICP4 ChipSeq 2hpi (HSV-1)</u></b>"),
+          div(class="d-flex",
+            div(style="width:225px;",
+              tags$ul(
+                tags$li( style="list-style-type: none;",
+                  "Promoter/5’UTR peak(s)"
+                )
+              )
+            ),
+            div( style = "flex:1;",
                if(!is.null(search_results())){
                  createGeneGrid(search_results(),"ChipSeq")
                }
+            )
           )
         ),
+        # div(class="d-flex",
+        #   div(style="width:225px", HTML(paste("<b>ChipSeq:</b>"))),
+        #   div( style = "flex:1;",
+        #      if(!is.null(search_results())){
+        #        createGeneGrid(search_results(),"ChipSeq")
+        #      }
+        #   )
+        # ),
         # Legend section
         if(!is.null(search_results())){
           div(class="d-flex",
@@ -234,6 +265,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
           )
         }
       )
+      #tags$script(HTML("MathJax.typeset();"))
     })
     
     # Render UI for cards
@@ -283,13 +315,8 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
       exp_files <- colnames(gene_results)[grepl(category,colnames(gene_results))]
       if(category == "ICP4")
         exp_files <- exp_files[!grepl("mock",exp_files)]
-      #print(colnames(gene_results))
-      #print(rownames(gene_results))
       tryCatch({
-        #session$sendCustomMessage("equalizeWidths", "column-headers")
-        #div(
-          # Grid of dots
-          #div(
+        # Grid of dots
         lapply(exp_files, function(file) { #file = file_name (no ext, just as in presence matrix)
           #print(file) #ensuring files are in same order as list
           div( #table row
@@ -444,7 +471,8 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
       if(is.null(experiment_data$all_files)){
         experiment_data$all_files <- unlist(lapply(experiments,list_txt_files))
         experiment_data$all_files_full_path <- unlist(lapply(experiments,list_txt_files,full_path=TRUE))
-        gene_info <- c()
+        
+        gene_info <- c() #get all genes and their IDs across all experiment files
         for(file in experiment_data$all_files_full_path){
           df <- read.table(file, header=TRUE)
           gene_ids <- df[["gene_id"]]
@@ -454,11 +482,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
         }
         gene_id_to_name(gene_info)
         
-        #browser()
-        #print(experiment_data$all_files_full_path)
         req(experiment_data$all_files)
-      #if(!(experiment_data$name %in% previously_selected$exps)){#prevent observer accumulation by checking if experiment already previously selected before assinging new observers
-        #previously_selected$exps <- append(previously_selected$exps, experiment_data$name)
         lapply(experiment_data$all_files, function(file_name) { #no ext
           observeEvent(input[[file_name]], {
             #req(experiment_data$name)      # double-check we did not leave
@@ -488,6 +512,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     
     observeEvent(input$id_type,{
       print("creating selectize from id_type")
+      print(gene_id_to_name()[1:5])
       if(input$id_type == "gene_name"){
         updateSelectizeInput(session,"gene_search",server=T,choices=as.vector(gene_id_to_name()))
       }
