@@ -30,7 +30,7 @@ data_ui <- function(id) {
                 ),
                 selectizeInput(ns("gene_search"), "Genes to search", choices=c(), multiple=T),
                 numericInput(ns("p_val_gene_grid"),"p-value cutoff",0.05),
-                numericInput(ns("lfc_cutoff_gene_grid"), "Log fold cutoff",0),
+                numericInput(ns("lfc_cutoff_gene_grid"), "Log fold cutoff",2),
                 div(
                   style = "display: flex; gap: 10px;",
                   actionButton(ns("search_btn"), "Search", icon = icon("magnifying-glass")),
@@ -84,8 +84,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     
     experiment_data <- reactiveValues(
       name = NULL,
-      #txt_files = NULL, #all txt files selected experiment folder with ext (regardless of filter)
-      #selected_files = NULL, #txt files without ext (could be filtered or not)
       all_files = NULL, #list of all experiment txt files (without ext)
       all_files_full_path = NULL
     )
@@ -95,7 +93,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     links <- reactiveValues(observers = list())
     cards <- reactiveValues(observers = list())
     previously_selected <- reactiveValues(exps = list())
-    #search_params <- reactiveValues(p_val = 0.05, lfc_cutoff = 0, genes=NULL)
     search_results <- reactiveVal(NULL)
     gene_id_to_name <- reactiveVal(NULL)
     
@@ -211,14 +208,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
             )
           )
         ),
-        # div(class="d-flex",
-        #   div(style="width:225px", HTML(paste("<b>ChipSeq:</b>"))),
-        #   div( style = "flex:1;",
-        #      if(!is.null(search_results())){
-        #        createGeneGrid(search_results(),"ChipSeq")
-        #      }
-        #   )
-        # ),
         # Legend section
         if(!is.null(search_results())){
           div(class="d-flex",
@@ -265,7 +254,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
           )
         }
       )
-      #tags$script(HTML("MathJax.typeset();"))
     })
     
     # Render UI for cards
@@ -280,31 +268,25 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
       req(input$gene_search, input$id_type) #get input and its type (gene name, id, etc)
       
       genes <- input$gene_search
-      # search_params$p_val <- input$p_val_gene_grid
-      # search_params$lfc_cutoff <- input$lfc_cutoff_gene_grid
-      # search_params$genes <- input$gene_search
       
-      # Apresence_matrix is df where:
+      # presence_matrix is df where:
       # - row names are experiment IDs
       # - column names are gene IDs
       # - values are TRUE/FALSE for presence/absence
       full_folder_name <- paste0( c("experiments/", experiment_data$name, "_comparisons"), collapse="" )
-      presence_df <- search_molecules(input$id_type, genes, experiment_data$all_files_full_path, input$p_val_gene_grid, input$lfc_cutoff_gene_grid) #returns df with rownames as genes and colnames as experiments; values either TRUE/FALSE for gene presence
-      # display warning message if colnames(presence_matrix) is different from genes
-      # if (is.null(presence_df) || length(rownames(presence_df)) < length(genes)) {
-      #   showModal(modalDialog(
-      #     title = "",
-      #     "Some genes were either filtered out during quality control or not found in the database. Please check id type or spelling."
-      #   ))
-      # }
       
-      if (is.null(presence_df)) {
-        search_results(NULL)
-      }
-      else{
-        display_presence <- as.matrix(presence_df)
-        search_results(display_presence)
-      }
+      withProgress(message = "Searching datasets for selected genes..." , {
+        #returns df with rownames as genes and colnames as experiments; values either TRUE/FALSE for gene presence
+        presence_df <- search_molecules(input$id_type, genes, experiment_data$all_files_full_path, input$p_val_gene_grid, input$lfc_cutoff_gene_grid) 
+        
+        if (is.null(presence_df)) {
+          search_results(NULL)
+        }
+        else{
+          display_presence <- as.matrix(presence_df)
+          search_results(display_presence)
+        }
+      })
       
     })
     
@@ -335,9 +317,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
             })
           )
         })
-        
-          #)
-        #)
       },
       error = function(e) {
         # On error, return just the experiment links
@@ -351,12 +330,22 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     # Utility function to generate a card UI dynamically
     generate_exp_card <- function(file_name) { #file_name no ext.
       print(paste("card:", file_name))
-      #base_file_name <- gsub("\\.txt$", "", file_name)
+      display_name <- strsplit(file_name,"-")[[1]][1:2]
+      for (i in 1:length(display_name)){
+        if (display_name[i] == "n6") {
+          display_name[i] <- "&Delta;NTA"
+        } else if (display_name[i] == "n208") {
+          display_name[i] <- "&Delta;CTA"
+        }
+      }
+      
+      display_name <- paste(display_name, collapse=" vs ")
+      display_name <- gsub("_"," ",display_name)
       div(
         class = "mb-3",  # adds margin-bottom of size 3 (Bootstrap spacing)
         card(
           id = ns(paste0("card_", file_name)), 
-          card_header(file_name),
+          card_header(HTML(display_name)),
           fluidRow(
             column(6, div()),#show_exp_details(user_info, exp_id)),
             column(4, div(style = "text-align: right;",
@@ -374,18 +363,30 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     # Helper function to insert or switch to a tab, also set focus of selected data file
     insert_or_switch_tab <- function(full_file_path){
       base_file_name <- gsub("\\.txt$", "", basename(full_file_path))
-      base_file_name <- gsub("-", "_", base_file_name) #used for CARD HEADER, TAB ID, CLOSE BUTTON ID, AND PLOT ID
+      #base_file_name <- gsub("-", "_", base_file_name) #used for CARD HEADER, TAB ID, CLOSE BUTTON ID, AND PLOT ID
       tab_id <- paste0("tab_", base_file_name)
       close_button_id <- paste0("close_", tab_id)
       plot_id <- paste0("plot_", tab_id) 
+      display_name <- strsplit(base_file_name,"-")[[1]][1:2]
+      #browser()
+      for (i in 1:length(display_name)){
+        if (display_name[i] == "n6") {
+          display_name[i] <- "&Delta;NTA"#"\\(\\Delta\\mathrm{NTA}\\)"
+        } else if (display_name[i] == "n208") {
+          display_name[i] <- "&Delta;CTA"#\\(\\Delta\\mathrm{CTA}\\)"
+        }
+      }
+      
+      display_name <- paste(display_name, collapse=" vs ")
+      display_name <- gsub("_"," ",display_name)
 
       if (!tab_id %in% names(created_tabs$tabs)) {
         new_tab <- tabPanel(
-          title = paste("Experiment", base_file_name),
+          title = HTML(display_name),
           value = tab_id,
           fluidRow(
             class = "mt-2 mb-4",  # mt-2 reduces top margin, mb-4 increases bottom margin
-            column(9, h4(base_file_name, class = "mb-0")),  # mb-0 removes margin below h3
+            column(9, h4(HTML(display_name), class = "mb-0")),  # mb-0 removes margin below h3
             column(3, actionButton(ns(close_button_id), "Close Tab"))
           ),
           plot_ui(ns(plot_id)) #plots log2FC data from file
@@ -400,7 +401,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
           select = TRUE
         )
         
-        #browser()
         # Store the module instance
         created_tabs$tabs[[tab_id]] <- list( #tab_<base_file_name>
           name = base_file_name,
@@ -418,10 +418,9 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
             module <- created_tabs$tabs[[tab_id]]$module
             
             # Trigger same behavior as clear_genes
-            module$local_selected$should_render_heatmap <- FALSE
-            module$local_selected$genes <- character(0)
-            module$local_selected$click <- character(0)
-            module$local_selected$typed <- character(0)
+            #module$local_selected$genes <- character(0)
+            #module$local_selected$click <- character(0)
+            #module$local_selected$typed <- character(0)
             
             # Then do the regular cleanup
             module$cleanup()
@@ -433,15 +432,12 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
         }, ignoreInit = TRUE)
         
       } else { # switching to new tab
-        #print(paste("Switching to existing tab:", tab_id))
         updateTabsetPanel(session, "data_tabs", selected = tab_id)
       }
     } # END insert_or_switch_tab----
     
     list_txt_files <- function(exp_name,full_path=FALSE){ #(no path), returns filtered list of files in directory (no ext.)
       # Find corresponding full folder name
-      #print("printing exp_name")
-      #print(exp_name)
       txt_files_path <- file.path("experiments", exp_name)
       
       if (dir.exists(txt_files_path)) {
@@ -467,7 +463,6 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     })
     
     observe({
-      print("setting up global reactive values")
       if(is.null(experiment_data$all_files)){
         experiment_data$all_files <- unlist(lapply(experiments,list_txt_files))
         experiment_data$all_files_full_path <- unlist(lapply(experiments,list_txt_files,full_path=TRUE))
@@ -499,9 +494,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     
     # Add clear button observer
     observeEvent(input$clear_btn, {
-      print("clearing selectize")
       search_results(NULL)  # Reset the search results
-      #experiment_data$selected_files <- gsub("\\.txt$","",experiment_data$txt_files)
       if(input$id_type == "gene_name"){
         updateSelectizeInput(session,"gene_search",server=T, choices=as.vector(gene_id_to_name()), selected=c())
       }
@@ -511,8 +504,8 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     })
     
     observeEvent(input$id_type,{
-      print("creating selectize from id_type")
-      print(gene_id_to_name()[1:5])
+      #print("creating selectize from id_type")
+      #print(gene_id_to_name()[1:5])
       if(input$id_type == "gene_name"){
         updateSelectizeInput(session,"gene_search",server=T,choices=as.vector(gene_id_to_name()))
       }
