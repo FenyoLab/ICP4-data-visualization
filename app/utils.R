@@ -115,8 +115,9 @@ search_molecules <- function(id_type, filtered_genes, data_files, p_val, lfc_cut
 
   experiment_results <- list()
   genes_upper <- toupper(filtered_genes)
-  gene_id_icp4 <- c() #map gene name to gene ensemble id, needed for finding gene in chipseq data
-  gene_id_siNTC <- c()
+  #gene_id_icp4 <- c() #map gene name to gene ensemble id, needed for finding gene in chipseq data
+  #gene_id_mock <- c()
+  gene_ids <- c()
   
   # Get the list of molecules you're searching for
   search_column <- ifelse(id_type == "gene_name", "gene", "gene_id")
@@ -126,23 +127,23 @@ search_molecules <- function(id_type, filtered_genes, data_files, p_val, lfc_cut
     
     df <- read.table(file, header=TRUE)
     if(search_column == "gene"){
-      if(grepl("siNTC",file)){
-        unlabeled_genes <- setdiff(genes_upper,names(gene_id_siNTC))
+      #if(grepl("mock",file)){
+        unlabeled_genes <- setdiff(genes_upper,names(gene_ids))
         filtered_df <- df[toupper(df[["gene"]]) %in% unlabeled_genes,]
-        gene_id_siNTC[filtered_df[["gene"]]] <- filtered_df[["gene_id"]]
+        gene_ids[filtered_df[["gene_id"]]] <- filtered_df[["gene"]]
         #browser()
-      }
-      else{
-        unlabeled_genes <- setdiff(genes_upper,names(gene_id_icp4))
-        filtered_df <- df[toupper(df[["gene"]]) %in% unlabeled_genes,]
-        gene_id_icp4[filtered_df[["gene"]]] <- filtered_df[["gene_id"]]
-      }
+      #}
+      # else{
+      #   unlabeled_genes <- setdiff(genes_upper,names(gene_id_icp4))
+      #   filtered_df <- df[toupper(df[["gene"]]) %in% unlabeled_genes,]
+      #   gene_id_icp4[filtered_df[["gene"]]] <- filtered_df[["gene_id"]]
+      # }
     }
     else{
-      if(grepl("siNTC",file))
-        gene_id_siNTC<- union(gene_id_siNTC, setdiff(gene_id_siNTC,df[["gene_id"]]))
-      else
-        gene_id_icp4 <- union(gene_id_icp4, setdiff(gene_id_icp4,df[["gene_id"]]))
+      #if(grepl("mock",file))
+        gene_ids <- union(gene_ids, df[["gene_id"]])
+      #else
+       # gene_id_icp4 <- union(gene_id_icp4, setdiff(gene_id_icp4,df[["gene_id"]]))
     }
     
     
@@ -176,37 +177,45 @@ search_molecules <- function(id_type, filtered_genes, data_files, p_val, lfc_cut
     if(any(is.na(unlist(gene_presence))) | any(unlist(gene_presence) != -2)){ #if there is at least 1 NA, means gene was found but no p val; if -2 for all, means no gene found in any experiment, so filter out these experiments
       experiment_results[[exp_id]] <- gene_presence
     }
-  }
+  } #END OF FORLOOP
   
   #check for gene presence in chipseq data
-  icp4_chipseq_data <- read.table(file.path("experiments","ICP4_comparisons","logCPM_all_samples.txt"), header=TRUE)
-  siNTC_chipseq_data <- read.table(file.path("experiments","siNTC_comparisons","logCPM_all_samples.txt"), header=TRUE)
-  
-  chipseq_icp4_genes <- rownames(icp4_chipseq_data)
-  chipseq_siNTC_genes <- rownames(siNTC_chipseq_data)
 
-  chipseq_presence_icp4 <- c()
-  chipseq_presence_siNTC <- c()
+  #icp4_chipseq_data <- read.table(file.path("experiments","ICP4_comparisons","logCPM_all_samples.txt"), header=TRUE)
+  #siNTC_chipseq_data <- read.table(file.path("experiments","siNTC_comparisons","logCPM_all_samples.txt"), header=TRUE)
 
-  presence_labels_icp4 <- c()
-  if(search_column == "gene")
-    presence_labels_icp4 <-  gene_id_icp4[genes_upper] %in% chipseq_icp4_genes
-  else
-    presence_labels_icp4 <- genes_upper %in% chipseq_icp4_genes
+  chipseq_data <- read.table(file.path("other-experiment-data","ChipSeq_comparisons","ChipSeq_peaks_anno_final_promotor_5primeUTR_peaks_2h.txt"), header=TRUE)
+  #chipseq_data <- read.table(r"(other-experiment-data/ChipSeq_comparisons/ChipSeq_peaks_anno_final_promotor_5primeUTR_peaks_2h.txt)",header=T)#read.table(r"(experiments\ICP4_comparisons\logCPM_all_samples.txt)",header=TRUE)
+  #browser()
+  #siNTC_chipseq_data <- read.table(r"(experiments\siNTC_comparisons\logCPM_all_samples.txt)",header=TRUE)
+
   
-  presence_labels_siNTC <- c()
+  chipseq_gene_ids <- toupper(chipseq_data[["geneId"]]) #ALWAYS GOING TO BE ENSEMBLE IDS
+  #browser()
+  #chipseq_siNTC_genes <- rownames(siNTC_chipseq_data)
+
+  chipseq_presence <- c()
+  #chipseq_presence_siNTC <- c()
+
+  presence_labels <- c()
   if(search_column == "gene")
-    presence_labels_siNTC <- gene_id_siNTC[genes_upper] %in% chipseq_siNTC_genes
+    presence_labels <-  genes_upper %in% gene_ids[chipseq_gene_ids]
   else
-    presence_labels_siNTC <- genes_upper %in% chipseq_siNTC_genes
+    presence_labels <- genes_upper %in% chipseq_gene_ids
+  
+  # presence_labels_siNTC <- c()
+  # if(search_column == "gene")
+  #   presence_labels_siNTC <- gene_id_mock[genes_upper] %in% chipseq_genes
+  # else
+  #   presence_labels_siNTC <- genes_upper %in% chipseq_siNTC_genes
   
   #named list, keys = gene (either name or id), vals = presence (2 if present, -2 if not, in order to match up with previous mappings)
-  chipseq_presence_icp4[genes_upper] <- presence_labels_icp4*4-2 #convert presence label to either 2 or -2
-  chipseq_presence_siNTC[genes_upper] <- presence_labels_siNTC*4-2
+  chipseq_presence[genes_upper] <- presence_labels*4-2 #convert presence label to either 2 or -2 for legend
+  #chipseq_presence_siNTC[genes_upper] <- presence_labels_siNTC*4-2
   #browser() 
   
-  experiment_results[["chipseq_ICP4"]] <- chipseq_presence_icp4
-  experiment_results[["chipseq_siNTC"]] <- chipseq_presence_siNTC
+  experiment_results[["ChipSeq"]] <- chipseq_presence
+  #experiment_results[["chipseq_siNTC"]] <- chipseq_presence_siNTC
   
   experiment_names <- names(experiment_results)
   # Clean approach using your experiment_results
