@@ -1,2 +1,6 @@
 docker-compose.yml
 nginx.conf
+.Rproj.user
+.DS_Store
+.Rhistory
+*.Rproj

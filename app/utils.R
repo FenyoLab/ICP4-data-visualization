@@ -179,8 +179,8 @@ search_molecules <- function(id_type, filtered_genes, data_files, p_val, lfc_cut
   }
   
   #check for gene presence in chipseq data
-  icp4_chipseq_data <- read.table(r"(experiments\ICP4_comparisons\logCPM_all_samples.txt)",header=TRUE)
-  siNTC_chipseq_data <- read.table(r"(experiments\siNTC_comparisons\logCPM_all_samples.txt)",header=TRUE)
+  icp4_chipseq_data <- read.table(file.path("experiments","ICP4_comparisons","logCPM_all_samples.txt"), header=TRUE)
+  siNTC_chipseq_data <- read.table(file.path("experiments","siNTC_comparisons","logCPM_all_samples.txt"), header=TRUE)
   
   chipseq_icp4_genes <- rownames(icp4_chipseq_data)
   chipseq_siNTC_genes <- rownames(siNTC_chipseq_data)
