@@ -4,4 +4,7 @@ nginx.conf
 .DS_Store
 .Rhistory
 *.Rproj
+.RData
+.Rhistory
+
 
