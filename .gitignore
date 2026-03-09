@@ -5,6 +5,7 @@ nginx.conf
 .Rhistory
 *.Rproj
 .RData
-.Rhistory
+app/experiments/*
+app/other-experiment-data/*
 
 
