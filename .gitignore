@@ -1,3 +1,17 @@
 docker-compose.yml
 nginx.conf
 .Rproj.user
+*.Rproj
+*.RData
+*.Rhistory
+*GSEA*
+*Shrink*
+*.pdf
+*padj*
+*RNA*
+*ORA*
+*final_all*
+*counts*
+*4h*
+*6h*
+*KOS*

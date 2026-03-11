@@ -329,7 +329,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
     
     # Utility function to generate a card UI dynamically
     generate_exp_card <- function(file_name) { #file_name no ext.
-      print(paste("card:", file_name))
+      #print(paste("card:", file_name))
       display_name <- strsplit(file_name,"-")[[1]][1:2]
       for (i in 1:length(display_name)){
         if (display_name[i] == "n6") {
@@ -410,7 +410,7 @@ data_server <- function(id, main_session, experiments) { #dir names of experimen
         
         # Set up remove button observer for this tab
         observeEvent(input[[close_button_id]], {
-          print(paste("Closing tab:", tab_id))
+          #print(paste("Closing tab:", tab_id))
           
           # Get the plot module's local_selected and trigger same behavior as clear_genes
           if (!is.null(created_tabs$tabs[[tab_id]]$module)) {
