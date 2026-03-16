@@ -12,7 +12,7 @@ plot_ui <- function(id){
   #dat_dir = '/srv/shiny-server/data/'
   
   #ID is full file path
-  print(paste0("plot_ui id: ", id))
+  #print(paste0("plot_ui id: ", id))
   ns <- NS(id)
   
   # Global styling applied at the top level
@@ -57,7 +57,7 @@ plot_ui <- function(id){
       fluidRow(
         column(4,
              #selectInput(ns("comparison"), "Select Comparison:", 
-             #            choices = NULL),
+             #             choices = NULL),
              sliderInput(ns("p_cutoff"), "-log10(P) Cutoff:", 
                          min = 0, max = 10, value = 2),
              sliderInput(ns("lfc_cutoff"), "LFC Cutoff:", 
@@ -95,9 +95,6 @@ plot_ui <- function(id){
                  "Ensembl Gene ID" = "ensembl_gene_id"
                )),
                selectizeInput(ns("genes"), "Selected Genes (type or select from plot)", choices=c("") , multiple = TRUE),
-                             #placeholder = "Click on points in volcano plot to add gene names here", rows = 3),
-               # textAreaInput(ns("typed_gene_list"), "Selected Genes (comma-separated):", 
-               #               placeholder = "Type the gene names here", rows = 3),
                actionButton(ns("get_genes"), "plot genes"),
                actionButton(ns("clear_genes"), "clear")
         ),
@@ -130,6 +127,7 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
       #is_fresh_session = TRUE,  # Add flag for fresh session
       #current_plot_ids = NULL,   # Add new reactive value for current plotted IDs
     )
+    clicked = reactiveVal(FALSE)
     
     heatmap_data <- reactiveVal(NULL)
     
@@ -172,9 +170,10 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
     })
     
     observeEvent(input$id_type,{
-      print("setting up selectize")
+      #print("setting up selectize")
+      #browser()
       if (input$id_type == "gene_name")
-        updateSelectizeInput(session,"genes",choices = unique(gene_id_to_name), server=TRUE)
+        updateSelectizeInput(session,"genes",choices = unique(as.vector(gene_id_to_name)), server=TRUE)
       else
         updateSelectizeInput(session,"genes",choices = names(gene_id_to_name), server=TRUE)
     })
@@ -280,29 +279,41 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
         )
         event_register(p,"plotly_click")
         
-        observeEvent(event_data("plotly_click", source = plot_source), {
-          click_data <- event_data("plotly_click", source = plot_source)
-          if (!is.null(click_data)) {
-            gene_id <- strsplit(click_data$key, "_")[[1]][1]
-            gene_name <- strsplit(click_data$key, "_")[[1]][2]
-            current_genes <- input$genes  
-            local_selected$gene_names <- union(local_selected$gene_names, gene_name)
-            local_selected$gene_names <- na.omit(local_selected$gene_names)
-            local_selected$gene_ids <- union(local_selected$gene_ids, gene_id) #save gene ids for heatmap display later
-            local_selected$gene_ids <- na.omit(local_selected$gene_ids)
-              
-            if(input$id_type == "gene_name" & !(gene_name %in% current_genes))
-              updateSelectizeInput(session, "genes", selected = c(current_genes,gene_name))
-            else if(!(gene_id %in% current_genes)) #use ensembl gene ID
-              updateSelectizeInput(session, "genes", selected = c(current_genes,gene_id))
-            
-          }
-        })
-        
         p
       })
       
     }) #END VOLCANO PLOT RENDER PLOTLY
+    
+    observeEvent(event_data("plotly_click", source = plot_source), {
+      clicked(TRUE)
+      click_data <- event_data("plotly_click", source = plot_source)
+      if (!is.null(click_data)) {
+        gene_id <- strsplit(click_data$key, "_")[[1]][1]
+        gene_name <- strsplit(click_data$key, "_")[[1]][2]
+        #browser()
+        current_genes <- input$genes
+        #print("in click function")
+        local_selected$gene_names <- union(local_selected$gene_names, gene_name)
+        #print("got first set of gene names")
+        local_selected$gene_names <- na.omit(local_selected$gene_names)
+        local_selected$gene_ids <- union(local_selected$gene_ids, gene_id) #save gene ids for heatmap display later
+        local_selected$gene_ids <- na.omit(local_selected$gene_ids)
+        
+        #browser()
+        
+        if(input$id_type == "gene_name"){
+          #print("updating list with gene name")
+          #print(union(current_genes,gene_name))
+          updateSelectizeInput(session, "genes", choices = unique(as.vector(gene_id_to_name)), selected = union(current_genes,gene_name), server=T)
+        }
+        else {#use ensembl gene ID
+          #print("updating list with gene id")
+          #print(union(current_genes,gene_id))
+          updateSelectizeInput(session, "genes", choices = names(gene_id_to_name), selected = union(current_genes,gene_id), server=T)
+        }
+        
+      }
+    })
     
     
     observeEvent(input$id_type, { #clear selected genes if new gene name type selected
@@ -421,7 +432,7 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
         
       })
 
-      print("Creating heatmap...")
+      #print("Creating heatmap...")
       output$gene_heatmap <- renderPlotly({
         withProgress(message = 'Preparing data...', {
           req(heatmap_data())
@@ -512,7 +523,8 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
     clear_genes <- function(){
       local_selected$gene_names <- character(0)
       local_selected$gene_ids <- character(0)
-      updateSelectizeInput(session,"genes",selected = c())
+      updateSelectizeInput(session,"genes",selected = c(""))
+      #print("clearing genes")
     }
     
       #Clear heatmap when clear_genes is clicked
@@ -521,12 +533,29 @@ plot_server <- function(id, experiments, file_path, gene_id_to_name){#, molecule
       clear_genes()
     })
     
-    # observeEvent(input$genes{
-    #   isolate({ #just in case
-    #     local_selected$gene_names <- intersect(local_selected()$gene_names,input$genes)
-    #     local_selected$gene_ids <- intersect(local_selected()$gene_ids,input$genes)
-    #   })
-    # })
+    observeEvent(input$genes, { #for when selected genes list gets altered (especially removed), update local_selected list of genes representing genes clicked from plot
+      if (!clicked()){
+        #print("local selected before")
+        #print(local_selected$gene_names)
+        #print(local_selected$gene_ids)
+        #print("")
+        if(input$id_type == "gene_name"){
+          missing_gene_names <- setdiff(local_selected$gene_names,input$genes)
+          missing_gene_ids <- names(gene_id_to_name[gene_id_to_name %in% missing_gene_names])
+          local_selected$gene_names <- setdiff(local_selected$gene_names,missing_gene_names)
+          local_selected$gene_ids <- setdiff(local_selected$gene_ids,missing_gene_ids)
+        }else{
+          missing_gene_ids <- setdiff(local_selected$gene_ids,input$genes)
+          missing_gene_names <- as.vector(gene_id_to_name[missing_gene_ids])
+          local_selected$gene_names <- setdiff(local_selected$gene_names,missing_gene_names)
+          local_selected$gene_ids <- setdiff(local_selected$gene_ids,missing_gene_ids)
+        }
+        #print("local selected after")
+        #print(local_selected$gene_names)
+        #print(local_selected$gene_ids)
+      }
+      clicked(FALSE)
+    })
     
       # Return module interface
     return(list(
